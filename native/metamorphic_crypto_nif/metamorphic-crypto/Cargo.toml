@@ -1,0 +1,23 @@
+[package]
+name = "metamorphic-crypto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Zero-knowledge E2E encryption core — NaCl-compatible symmetric/public-key crypto + ML-KEM-768 hybrid post-quantum"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+argon2 = { version = "0.5", features = ["alloc"] }
+crypto_secretbox = "0.1"
+crypto_box = "0.9"
+blake2 = "0.10"
+ml-kem = "0.3"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+sha3 = "0.10"
+base64 = "0.22"
+getrandom = "0.2"
+zeroize = { version = "1", features = ["derive"] }
+thiserror = "2"

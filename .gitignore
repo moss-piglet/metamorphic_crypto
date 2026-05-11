@@ -1,0 +1,21 @@
+# metamorphic_crypto
+
+Built artifacts
+/_build/
+/deps/
+/doc/
+
+Crash dump
+erl_crash.dump
+
+Generated on compile
+*.ez
+
+Rust build artifacts
+/native/metamorphic_crypto_nif/target/
+
+# Precompiled NIF checksum cache
+/checksum-*.exs
+
+/priv/native/
+/native/metamorphic_crypto_nif/target/

@@ -1,0 +1,15 @@
+[package]
+name = "metamorphic_crypto_nif"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "metamorphic_crypto_nif"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.37"
+metamorphic-crypto = { path = "./metamorphic-crypto" }

@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  MIX_ENV: test
+  METAMORPHIC_CRYPTO_BUILD: "true"
+
+jobs:
+  test:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { elixir: "1.15", otp: "26" }
+          - { elixir: "1.16", otp: "26" }
+          - { elixir: "1.17", otp: "27" }
+          - { elixir: "1.18", otp: "28" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Erlang & Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+            native/metamorphic_crypto_nif/target
+          key: ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('native/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Run tests
+        run: mix test
+
+      - name: Check formatting
+        run: mix format --check-formatted
+        if: matrix.elixir == '1.18'
+
+  rust_checks:
+    name: Rust lint & test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            native/metamorphic_crypto_nif/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --check --manifest-path native/metamorphic_crypto_nif/Cargo.toml
+
+      - name: Clippy
+        run: cargo clippy --release --manifest-path native/metamorphic_crypto_nif/Cargo.toml -- -D warnings
+
+      - name: Test Rust crate
+        run: cargo test --manifest-path native/metamorphic_crypto_nif/metamorphic-crypto/Cargo.toml

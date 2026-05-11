@@ -1,0 +1,105 @@
+name: Build Precompiled NIFs
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build_release:
+    name: NIF ${{ matrix.nif }} - ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        nif: ["2.15", "2.16", "2.17"]
+        job:
+          - { target: aarch64-apple-darwin, os: macos-14 }
+          - { target: x86_64-apple-darwin, os: macos-14 }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04, use-cross: true }
+          - { target: x86_64-pc-windows-msvc, os: windows-2022 }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.job.target }}
+
+      - name: Install cross
+        if: matrix.job.use-cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build NIF (cross)
+        if: matrix.job.use-cross
+        run: |
+          cd native/metamorphic_crypto_nif
+          cross build --release --target=${{ matrix.job.target }}
+
+      - name: Build NIF (native)
+        if: ${{ !matrix.job.use-cross }}
+        run: |
+          cd native/metamorphic_crypto_nif
+          cargo build --release --target=${{ matrix.job.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          LIBNAME="libmetamorphic_crypto_nif"
+          TARGET="${{ matrix.job.target }}"
+          NIF_VERSION="${{ matrix.nif }}"
+
+          if [[ "$TARGET" == *"apple"* ]]; then
+            EXT="dylib"
+          else
+            EXT="so"
+          fi
+
+          SOURCE="native/metamorphic_crypto_nif/target/${TARGET}/release/${LIBNAME}.${EXT}"
+          ARCHIVE="${LIBNAME}-${{ github.ref_name }}-nif-${NIF_VERSION}-${TARGET}.so.tar.gz"
+
+          tar -czf "${ARCHIVE}" -C "$(dirname ${SOURCE})" "$(basename ${SOURCE})"
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          LIBNAME="metamorphic_crypto_nif"
+          TARGET="${{ matrix.job.target }}"
+          NIF_VERSION="${{ matrix.nif }}"
+
+          SOURCE="native/metamorphic_crypto_nif/target/${TARGET}/release/${LIBNAME}.dll"
+          ARCHIVE="${LIBNAME}-${{ github.ref_name }}-nif-${NIF_VERSION}-${TARGET}.dll.tar.gz"
+
+          tar -czf "${ARCHIVE}" -C "$(dirname ${SOURCE})" "$(basename ${SOURCE})"
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    name: Create Release
+    needs: build_release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
