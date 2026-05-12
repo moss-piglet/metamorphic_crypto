@@ -620,6 +620,9 @@ This is a UX vs. security trade-off:
 In Metamorphic, we use **both**: sessionStorage for the active tab, and an
 encrypted persistent cache so users don't have to re-enter their password on
 browser restart. The persistent cache is cleared on logout and password change.
+Users can opt out of the persistent cache in Settings ("Always require password")
+— this disables caching entirely and clears existing cached keys, falling back
+to sessionStorage-only behavior.
 
 ### Data Attributes
 
