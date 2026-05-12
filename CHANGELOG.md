@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0 (2025-XX-XX)
+## v0.1.0 (2026-05-11)
 
 - Initial release
 - XSalsa20-Poly1305 symmetric encryption (`MetamorphicCrypto.SecretBox`)
