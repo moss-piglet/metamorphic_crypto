@@ -1,9 +1,10 @@
 defmodule MetamorphicCrypto do
   @moduledoc """
-  Zero-knowledge end-to-end encryption for Elixir.
+  NaCl-compatible encryption for Elixir with post-quantum support.
 
   `MetamorphicCrypto` provides NaCl-compatible cryptographic primitives powered
-  by Rust NIFs with precompiled binaries — no Rust toolchain required.
+  by Rust NIFs with precompiled binaries — no Rust toolchain, no C compiler,
+  no system packages required.
 
   ## Quick Start
 
