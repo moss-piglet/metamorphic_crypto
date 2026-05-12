@@ -349,9 +349,8 @@ then sends the encrypted blobs to the server.
         //    this up on the next page load to derive all keys
         sessionStorage.setItem("_session_key_temp", sessionKey);
 
-        // 6. Inject hidden fields
-        this.el.querySelector('input[name="user[key_hash]"]').value =
-          Array.from(salt).map(b => String.fromCharCode(b)).join('') + "$argon2id";
+        // 6. Inject hidden fields (salt is already Base64 from the WASM module)
+        this.el.querySelector('input[name="user[key_hash]"]').value = salt + "$argon2id";
         this.el.querySelector('input[name="user[public_key]"]').value = keypair.publicKey;
         this.el.querySelector('input[name="user[encrypted_private_key]"]').value = encryptedPrivateKey;
         this.el.querySelector('input[name="user[encrypted_user_key]"]').value = encryptedUserKey;
@@ -392,7 +391,11 @@ defmodule MyAppWeb.UserRegistrationController do
     # Compute HMAC blind index for lookups
     email_hash = :crypto.mac(:hmac, :sha512, Application.fetch_env!(:my_app, :email_hmac_key), String.downcase(plain_email))
 
-    # Hash password for server-side auth
+    # Hash password for server-side auth (independent of client-side KDF).
+    # The client derives session_key via Argon2id with its own salt for key
+    # derivation. The server hashes the password with a separate Argon2 salt
+    # for session authentication. These are two separate operations serving
+    # different purposes — they never share a salt.
     hashed_password = Argon2.hash_pwd_salt(user_params["password"])
 
     attrs = %{
@@ -709,14 +712,19 @@ LiveView event.
 
 ### Colocated Hook for Creating a Resource
 
+The form uses a `type="button"` submit trigger (not `type="submit"`) so that
+if the JS hook fails to load, the form **cannot submit unencrypted data** to
+the server. Data is only sent via `pushEvent` after successful encryption.
+
 ```heex
 <%!-- lib/my_app_web/live/habit_live/index.html.heex --%>
 <div id="habit-form-wrapper" phx-hook=".HabitFormHook">
-  <.form for={@form} id="new-habit-form" phx-submit="create_habit">
-    <.input type="text" field={@form[:name]} id="habit-name-input" />
-    <.input type="textarea" field={@form[:description]} id="habit-desc-input" />
-    <button type="submit">Create Habit</button>
-  </.form>
+  <.input type="text" id="habit-name-input" name="name" label="Name" />
+  <.input type="textarea" id="habit-desc-input" name="description" label="Description" />
+  <button type="button" data-action="submit-habit"
+    class="btn bg-primary text-primary-content">
+    Create Habit
+  </button>
 </div>
 
 <script :type={Phoenix.LiveView.ColocatedHook} name=".HabitFormHook">
@@ -724,10 +732,9 @@ LiveView event.
 
   export default {
     mounted() {
-      const form = this.el.querySelector("form");
+      const btn = this.el.querySelector('[data-action="submit-habit"]');
 
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
+      btn.addEventListener("click", async () => {
         await ensureReady();
 
         const privateKey = sessionStorage.getItem("_private_key");
@@ -740,22 +747,26 @@ LiveView event.
         const name = this.el.querySelector("#habit-name-input").value;
         const description = this.el.querySelector("#habit-desc-input").value;
 
-        // Generate a per-habit context key
-        const habitKey = generateKey();
+        try {
+          // Generate a per-habit context key
+          const habitKey = generateKey();
 
-        // Encrypt the fields with the context key
-        const encryptedName = encrypt(name, habitKey);
-        const encryptedDescription = encrypt(description, habitKey);
+          // Encrypt the fields with the context key
+          const encryptedName = encrypt(name, habitKey);
+          const encryptedDescription = encrypt(description, habitKey);
 
-        // Seal the context key to the user's public key
-        const encryptedKey = seal(habitKey, publicKey);
+          // Seal the context key to the user's public key
+          const encryptedKey = seal(habitKey, publicKey);
 
-        // Push encrypted params to the server via LiveView
-        this.pushEvent("create_habit", {
-          encrypted_name: encryptedName,
-          encrypted_description: encryptedDescription,
-          encrypted_key: encryptedKey,
-        });
+          // Push encrypted params to the server via LiveView
+          this.pushEvent("create_habit", {
+            encrypted_name: encryptedName,
+            encrypted_description: encryptedDescription,
+            encrypted_key: encryptedKey,
+          });
+        } catch (err) {
+          console.error("Encryption failed:", err);
+        }
       });
     }
   }
@@ -941,6 +952,8 @@ defmodule MyAppWeb.GroupsLive do
   end
 
   defp validate_encrypted_key(key) when is_binary(key) and byte_size(key) > 0 do
+    # Minimum 80 bytes: crypto_box_SEALBYTES (48) + 32-byte key = 80 for legacy box_seal.
+    # Maximum 2048 bytes: covers hybrid PQ sealed keys (ML-KEM-768 ciphertext is ~1100 bytes).
     case Base.decode64(key) do
       {:ok, decoded} when byte_size(decoded) >= 80 and byte_size(decoded) <= 2048 -> :ok
       _ -> {:error, :invalid_encrypted_key}
@@ -1027,7 +1040,9 @@ DOM client-side.
     data-encrypted-description={habit.encrypted_description}
     data-encrypted-key={habit.user_habit.encrypted_key}
   >
-    <p class="text-base-content/50 animate-pulse">Decrypting...</p>
+    <h3 data-decrypt-name class="font-semibold text-base-content animate-pulse">···</h3>
+    <p data-decrypt-description class="text-base-content/70 animate-pulse">···</p>
+    <p data-decrypt-error class="text-error hidden"></p>
   </div>
 </div>
 ```
@@ -1063,13 +1078,15 @@ client-side.
         const name = decrypt(el.dataset.encryptedName, habitKey);
         const description = decrypt(el.dataset.encryptedDescription, habitKey);
 
-        // Update the DOM
-        el.innerHTML = `
-          <h3 class="font-semibold text-base-content">${name}</h3>
-          <p class="text-base-content/70">${description}</p>
-        `;
+        // Update the DOM — use textContent (NOT innerHTML) to prevent XSS.
+        // Decrypted user content could contain <script> tags or event handlers.
+        const nameEl = el.querySelector("[data-decrypt-name]");
+        const descEl = el.querySelector("[data-decrypt-description]");
+        if (nameEl) nameEl.textContent = name;
+        if (descEl) descEl.textContent = description;
       } catch (err) {
-        el.innerHTML = `<p class="text-error">Failed to decrypt</p>`;
+        const errEl = el.querySelector("[data-decrypt-error]");
+        if (errEl) errEl.textContent = "Failed to decrypt";
         console.error("Decryption failed:", err);
       }
     }
