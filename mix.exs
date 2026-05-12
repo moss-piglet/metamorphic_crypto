@@ -27,12 +27,8 @@ defmodule MetamorphicCrypto.MixProject do
 
   defp description do
     """
-    NaCl-compatible encryption for Elixir — server-side.
-
-    Symmetric and public-key encryption, Argon2id key derivation,
-    ML-KEM-768 + X25519 hybrid post-quantum encryption, and human-readable
-    recovery keys — powered by Rust NIFs with precompiled binaries.
-    No Rust toolchain, no C compiler, no system packages.
+    NaCl-compatible encryption for Elixir with ML-KEM-768 post-quantum support.
+    Precompiled Rust NIFs — no C compiler or system packages needed.
     """
   end
 
