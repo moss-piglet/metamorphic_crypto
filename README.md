@@ -129,7 +129,8 @@ client-side encryption in the browser using the WASM build of the same Rust
 core in a LiveView JS hook. Both produce identical wire-compatible ciphertext —
 data sealed by the NIF can be unsealed by the WASM module, and vice versa.
 
-A full implementation guide is coming. For now, here's how the pieces fit:
+See the [Zero-Knowledge Guide](docs/zero-knowledge-guide.md) for a full walkthrough.
+Here's how the pieces fit:
 
 - **Client (WASM in JS hook):** encrypts user data, derives session keys from passwords, decrypts on read
 - **Server (this library):** key distribution, background re-keying, account provisioning, keypair generation
