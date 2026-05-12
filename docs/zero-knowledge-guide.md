@@ -368,8 +368,15 @@ then sends the encrypted blobs to the server.
 
 ### Server-Side Controller
 
-On the server, receive the encrypted blobs and store them. The server never sees
-the plaintext — it only stores opaque ciphertext.
+On the server, receive the encrypted blobs and store them.
+
+**Important trade-off:** The server sees the plaintext email and password
+transiently during registration. The password is needed for server-side Argon2
+session auth. The email is needed to send the confirmation email and compute the
+HMAC blind index. After the request completes, neither is persisted — only the
+`email_hash` (HMAC) and `encrypted_email` (ciphertext) remain in the database.
+Declare the `email` field as virtual with `redact: true` to prevent accidental
+persistence or logging.
 
 ```elixir
 defmodule MyAppWeb.UserRegistrationController do
@@ -1123,6 +1130,77 @@ response for known vs. unknown users). Mitigate this with:
    unknown email return the same fake (no timing delta on cache hits)
 3. **Rate limiting** — 10 requests/minute per IP minimum. Use IP hashing for
    privacy in logs.
+
+### XSS is the Primary Threat to Key Material
+
+During an active session, derived keys live in `sessionStorage`. Any XSS
+vulnerability can read them. This is the weakest link in the architecture — not
+the crypto, but the browser execution environment.
+
+**Mitigations (all required for production):**
+
+1. **Strict Content-Security-Policy** — per-request nonce for scripts, no
+   `unsafe-inline` for script-src, `frame-ancestors 'none'`:
+
+   ```elixir
+   # lib/my_app_web/plugs/content_security_policy.ex
+   defmodule MyAppWeb.Plugs.ContentSecurityPolicy do
+     import Plug.Conn
+
+     def init(opts), do: opts
+
+     def call(conn, _opts) do
+       nonce = Base.encode64(:crypto.strong_rand_bytes(16))
+
+       conn
+       |> assign(:csp_nonce, nonce)
+       |> put_resp_header("content-security-policy", """
+       default-src 'self'; \
+       script-src 'self' 'nonce-#{nonce}' 'wasm-unsafe-eval'; \
+       style-src 'self' 'unsafe-inline'; \
+       img-src 'self' data:; \
+       connect-src 'self'; \
+       frame-ancestors 'none'; \
+       object-src 'none'; \
+       base-uri 'self'\
+       """)
+     end
+   end
+   ```
+
+   Wire it into your browser pipeline:
+
+   ```elixir
+   pipeline :browser do
+     # ...
+     plug MyAppWeb.Plugs.ContentSecurityPolicy
+   end
+   ```
+
+2. **No inline scripts** — use colocated hooks (which are bundled by esbuild)
+   and nonce-tagged script tags only. Never use `<script>` without a nonce.
+
+3. **Sanitize all user-generated content** — Phoenix's HEEx templates
+   auto-escape by default, but be careful with `raw/1` and `Phoenix.HTML.raw/1`.
+
+4. **HttpOnly session cookies** — Phoenix does this by default. The session
+   token is never accessible to JavaScript.
+
+The persistent key cache (IndexedDB + Web Crypto) is more resilient — the
+wrapping key is non-extractable, so even XSS can't read raw key bytes from it.
+But during an active session, `sessionStorage` is the attack surface.
+
+### Plaintext Email Touches the Server at Registration
+
+The server transiently sees the plaintext email during registration (for
+confirmation email delivery and HMAC blind index computation). After the request
+completes, only `email_hash` and `encrypted_email` persist. This is an
+intentional trade-off — alternatives (like client-side HMAC) would require
+shipping the HMAC secret to the browser, which is worse.
+
+If you need stronger email privacy, you can skip email confirmation entirely
+and only store the HMAC + encrypted blob. The user's email is then only ever
+readable by the user themselves (via client-side decryption).
 
 ### Cloak is Defense-in-Depth, Not the Primary Protection
 
