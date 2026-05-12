@@ -33,8 +33,18 @@ Then:
 mix deps.get
 ```
 
-That's it. Precompiled NIF binaries are downloaded automatically for your
-platform. No Rust toolchain required.
+That's it. Precompiled NIF binaries download automatically for your platform.
+No Rust toolchain, no C compiler, no system packages.
+
+### Why not enacl?
+
+`enacl` wraps libsodium via C NIFs. It requires libsodium headers installed
+system-wide, a C compiler toolchain, and often breaks on OTP upgrades or macOS
+updates. CI pipelines need extra setup. Docker builds need `libsodium-dev`.
+
+MetamorphicCrypto produces **identical ciphertext** (same NaCl wire format) but
+ships as precompiled binaries — `mix deps.get` and it works. No system deps,
+no compilation headaches, no chasing build failures across platforms.
 
 ## Quick Start
 
