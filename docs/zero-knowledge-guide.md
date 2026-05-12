@@ -1116,12 +1116,6 @@ client-side.
 5. **Cloak wraps everything** — every `:binary` encrypted field should be
    Cloak-encrypted at rest as a defense-in-depth layer.
 
-## Full Example App
-
-A complete, minimal Phoenix app demonstrating this architecture is available at
-[github.com/moss-piglet/zk-phoenix-example](https://github.com/moss-piglet/zk-phoenix-example)
-(coming soon).
-
 ## Security Considerations
 
 ### Password Never Reaches sessionStorage
