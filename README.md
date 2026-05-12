@@ -121,7 +121,19 @@ mix metamorphic_crypto.gen.key
 
 ## Architecture Patterns
 
-### Pattern 1: Zero-Knowledge with Defense-in-Depth
+### Full Zero-Knowledge (Client + Server)
+
+**Note:** This library handles the server-side half of a ZK architecture. For
+full zero-knowledge where plaintext never touches the server, you also need
+client-side encryption in the browser using the WASM build of the same Rust
+core in a LiveView JS hook. Both produce identical wire-compatible ciphertext —
+data sealed by the NIF can be unsealed by the WASM module, and vice versa.
+
+A full implementation guide is coming. For now, here's how the pieces fit:
+
+- **Client (WASM in JS hook):** encrypts user data, derives session keys from passwords, decrypts on read
+- **Server (this library):** key distribution, background re-keying, account provisioning, keypair generation
+- **Cloak:** Ecto encrypted types, blind indexes, defense-in-depth layer wrapping the already-encrypted blobs
 
 This is how [Metamorphic](https://metamorphic.app) uses this library. The client
 encrypts data before it reaches the server. The server stores opaque ciphertext
