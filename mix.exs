@@ -27,11 +27,12 @@ defmodule MetamorphicCrypto.MixProject do
 
   defp description do
     """
-    Zero-knowledge end-to-end encryption for Elixir.
+    NaCl-compatible encryption for Elixir — server-side.
 
-    NaCl-compatible symmetric and public-key encryption, Argon2id key derivation,
+    Symmetric and public-key encryption, Argon2id key derivation,
     ML-KEM-768 + X25519 hybrid post-quantum encryption, and human-readable
-    recovery keys — all powered by Rust NIFs with precompiled binaries.
+    recovery keys — powered by Rust NIFs with precompiled binaries.
+    No Rust toolchain, no C compiler, no system packages.
     """
   end
 
@@ -56,6 +57,7 @@ defmodule MetamorphicCrypto.MixProject do
       },
       files: ~w[
         lib
+        docs
         native/metamorphic_crypto_nif/.cargo
         native/metamorphic_crypto_nif/Cargo.toml
         native/metamorphic_crypto_nif/Cargo.lock
@@ -75,7 +77,11 @@ defmodule MetamorphicCrypto.MixProject do
   defp docs do
     [
       main: "MetamorphicCrypto",
-      extras: ["README.md", "CHANGELOG.md"],
+      extras: [
+        "README.md",
+        "docs/zero-knowledge-guide.md",
+        "CHANGELOG.md"
+      ],
       groups_for_modules: [
         "Symmetric Encryption": [MetamorphicCrypto.SecretBox],
         "Public-Key Encryption": [MetamorphicCrypto.BoxSeal],
