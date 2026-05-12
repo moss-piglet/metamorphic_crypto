@@ -100,10 +100,11 @@ group_key (random 32 bytes, per group)
 |-------|------|------------|
 | **Browser** | Encrypts/decrypts user data | WASM (`metamorphic-crypto` in JS hook) |
 | **Browser** | Derives session key from password | WASM Argon2id |
+| **Browser** | Seals context keys for sharing | WASM (client-side key distribution) |
 | **Browser** | Caches derived keys | IndexedDB + Web Crypto API |
 | **Server** | Generates keypairs during provisioning | `metamorphic_crypto` NIF |
-| **Server** | Seals context keys for key distribution | `metamorphic_crypto` NIF |
-| **Server** | Background re-keying (PQ migration) | `metamorphic_crypto` NIF |
+| **Server** | Orchestrates key distribution events | LiveView `push_event` |
+| **Server** | Background re-keying (PQ migration) | `metamorphic_crypto` NIF (with client-provided keys) |
 | **Server** | Stores opaque ciphertext | Ecto schema |
 | **Server** | Defense-in-depth at-rest encryption | Cloak (AES-256-GCM) |
 | **Server** | Blind indexes for lookups | HMAC-SHA512 |
@@ -344,7 +345,11 @@ then sends the encrypted blobs to the server.
         // 4. Encrypt email
         const encryptedEmail = encrypt(email, userKey);
 
-        // 5. Inject hidden fields
+        // 5. Store session key temporarily — SessionKeyDeriver will pick
+        //    this up on the next page load to derive all keys
+        sessionStorage.setItem("_session_key_temp", sessionKey);
+
+        // 6. Inject hidden fields
         this.el.querySelector('input[name="user[key_hash]"]').value =
           Array.from(salt).map(b => String.fromCharCode(b)).join('') + "$argon2id";
         this.el.querySelector('input[name="user[public_key]"]').value = keypair.publicKey;
@@ -352,7 +357,8 @@ then sends the encrypted blobs to the server.
         this.el.querySelector('input[name="user[encrypted_user_key]"]').value = encryptedUserKey;
         this.el.querySelector('input[name="user[encrypted_email]"]').value = encryptedEmail;
 
-        // 6. Submit the form
+        // 7. Submit the form — server stores blobs, redirects to dashboard,
+        //    where SessionKeyDeriver uses the temp key to derive everything
         this.el.submit();
       });
     }
@@ -411,31 +417,33 @@ end
 
 ### Ecto Schema
 
-Store the encrypted blobs as `:binary` and use Cloak for at-rest protection:
+Store the encrypted blobs and use Cloak encrypted types for at-rest protection:
 
 ```elixir
 defmodule MyApp.Accounts.User do
   use Ecto.Schema
-  use Cloak.Ecto.Schema, encrypted: [:encrypted_email, :encrypted_private_key,
-                                      :encrypted_user_key]
 
   schema "users" do
-    field :email_hash, :binary          # HMAC-SHA512 blind index
-    field :encrypted_email, :binary     # E2E encrypted email
-    field :public_key, :binary          # X25519 public key (Cloak)
-    field :encrypted_private_key, :binary  # X25519 private key (Cloak + secretbox)
-    field :encrypted_user_key, :binary     # user_key sealed for this user
-    field :key_hash, :string               # Argon2id params for re-derivation
-    field :hashed_password, :string        # Argon2 password hash (server auth)
+    field :email_hash, :binary                       # HMAC-SHA512 blind index
+    field :encrypted_email, MyApp.Encrypted.Binary   # E2E encrypted email (Cloak-wrapped)
+    field :public_key, MyApp.Encrypted.Binary        # X25519 public key (Cloak-wrapped)
+    field :encrypted_private_key, MyApp.Encrypted.Binary  # X25519 private key (Cloak-wrapped)
+    field :encrypted_user_key, MyApp.Encrypted.Binary     # user_key sealed for this user
+    field :key_hash, :string                              # Argon2id salt + params
+    field :hashed_password, :string                       # Argon2 password hash (server auth)
 
     # Optional: post-quantum hybrid keypair
-    field :pq_public_key, :binary
-    field :encrypted_pq_private_key, :binary
+    field :pq_public_key, MyApp.Encrypted.Binary
+    field :encrypted_pq_private_key, MyApp.Encrypted.Binary
 
     timestamps()
   end
 end
 ```
+
+**Note:** The `encrypted_private_key` field is encrypted twice — once by the
+client (secretbox with session key) and once by Cloak (AES-256-GCM at rest).
+The server cannot read the inner layer. This is defense-in-depth.
 
 ## Step 2: Login Flow
 
@@ -494,41 +502,119 @@ On login, the hook intercepts the form to:
 
 ### The Salt Endpoint (Server)
 
+This endpoint returns the Argon2id salt for a given email. It must be hardened
+against user enumeration:
+
+- **Timing normalization** — enforce a minimum response time so an attacker
+  can't distinguish "user exists" (DB hit) from "user not found" (fake hash).
+- **Rate limiting** — 10 requests/minute per IP.
+- **Deterministic fake salt** — for unknown emails, derive a fake salt from a
+  server secret + the email (HMAC). This makes repeated requests for the same
+  unknown email return the same hash, preventing timing-based enumeration.
+
 ```elixir
-defmodule MyAppWeb.Api.AuthController do
+defmodule MyAppWeb.AuthSaltController do
   use MyAppWeb, :controller
 
   alias MyApp.Accounts
 
-  def salt(conn, %{"email" => email}) do
-    email_hash = :crypto.mac(:hmac, :sha512,
-      Application.fetch_env!(:my_app, :email_hmac_key),
-      String.downcase(email))
+  @min_response_ms 100
 
-    user = Repo.get_by(User, email_hash: email_hash)
+  def show(conn, %{"email" => email}) when is_binary(email) and email != "" do
+    start = System.monotonic_time(:millisecond)
 
-    key_hash = if user do
-      user.key_hash
-    else
-      # Timing-normalized fake hash for unknown emails
-      "AAAAAAAAAAAAAAAAAAAAAA$argon2id"
-    end
+    email_hash =
+      :crypto.mac(:hmac, :sha512,
+        Application.fetch_env!(:my_app, :email_hmac_key),
+        String.downcase(email))
 
+    key_hash =
+      case Repo.get_by(User, email_hash: email_hash) do
+        %User{key_hash: kh} -> kh
+        nil -> generate_fake_key_hash(email)
+      end
+
+    enforce_min_duration(start)
     json(conn, %{key_hash: key_hash})
   end
+
+  def show(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "email is required"})
+  end
+
+  # Deterministic fake salt — same email always produces the same fake,
+  # so timing is consistent regardless of how many times it's queried
+  defp generate_fake_key_hash(email) do
+    fake_salt =
+      :crypto.mac(:hmac, :sha512,
+        Application.fetch_env!(:my_app, :fake_salt_secret),
+        String.downcase(email))
+      |> binary_part(0, 16)
+      |> Base.encode64()
+
+    fake_salt <> "$argon2id"
+  end
+
+  defp enforce_min_duration(start) do
+    elapsed = System.monotonic_time(:millisecond) - start
+    remaining = @min_response_ms - elapsed
+    if remaining > 0, do: Process.sleep(remaining)
+  end
+end
+```
+
+In the router, apply rate limiting:
+
+```elixir
+# lib/my_app_web/router.ex
+pipeline :api_rate_limited do
+  plug :accepts, ["json"]
+  plug MyAppWeb.Plugs.RateLimiter, scale: :timer.minutes(1), limit: 10, key_prefix: "api"
+end
+
+scope "/api", MyAppWeb do
+  pipe_through :api_rate_limited
+  post "/auth/salt", AuthSaltController, :show
 end
 ```
 
 ## Step 3: Key Derivation on Dashboard Mount
 
-After login, the user is redirected to the dashboard. Pass the encrypted keys
-from the server to the client via data attributes:
+After login or registration, the user is redirected to an authenticated page.
+The `SessionKeyDeriver` hook picks up the temporary session key (stored in
+sessionStorage by the Login/Registration hook) and derives the full key set.
+
+### Storage Model
+
+Keys live in two layers:
+
+| Layer | Scope | Purpose |
+|-------|-------|---------|
+| **sessionStorage** | Current tab only | Active decryption keys — cleared on tab close |
+| **localStorage + IndexedDB** | Persistent | Encrypted key cache — survives browser restarts |
+
+This is a UX vs. security trade-off:
+
+- **sessionStorage only** — most secure. User must re-enter password on every
+  tab close. Appropriate for high-security contexts.
+- **Persistent cache** — better UX. Derived keys are encrypted with a
+  non-extractable AES-256-GCM wrapping key (IndexedDB) and stored as ciphertext
+  (localStorage). Survives browser restarts without password re-entry.
+
+In Metamorphic, we use **both**: sessionStorage for the active tab, and an
+encrypted persistent cache so users don't have to re-enter their password on
+browser restart. The persistent cache is cleared on logout and password change.
+
+### Data Attributes
+
+Pass the encrypted keys from the server to the client via data attributes:
 
 ```heex
 <%!-- In your Layouts.app template --%>
 <div
   id="session-key-deriver"
   phx-hook=".SessionKeyDeriver"
+  phx-update="ignore"
   data-key-hash={@current_scope.user.key_hash}
   data-public-key={@current_scope.user.public_key}
   data-encrypted-private-key={@current_scope.user.encrypted_private_key}
@@ -546,27 +632,6 @@ from the server to the client via data attributes:
 
   export default {
     async mounted() {
-      // 1. Check sessionStorage (already derived this session)
-      if (sessionStorage.getItem("_session_key")) {
-        return;
-      }
-
-      // 2. Check persistent cache
-      const cached = await getCachedKeys();
-      if (cached) {
-        sessionStorage.setItem("_session_key", cached.sessionKey);
-        sessionStorage.setItem("_private_key", cached.privateKey);
-        sessionStorage.setItem("_user_key", cached.userKey);
-        return;
-      }
-
-      // 3. Derive from temp key (just logged in)
-      const tempKey = sessionStorage.getItem("_session_key_temp");
-      if (!tempKey) {
-        window.location = "/users/reauthenticate";
-        return;
-      }
-
       await ensureReady();
 
       const el = this.el;
@@ -574,21 +639,56 @@ from the server to the client via data attributes:
       const encryptedPrivateKey = el.dataset.encryptedPrivateKey;
       const encryptedUserKey = el.dataset.encryptedUserKey;
 
+      // Always store public key — it's not secret and other hooks need it
+      sessionStorage.setItem("_public_key", publicKey);
+
+      // 1. Check sessionStorage — already derived this session?
+      const existingKey = sessionStorage.getItem("_session_key");
+      if (existingKey) {
+        // Validate by trial-decrypting the private key
+        try {
+          decrypt(encryptedPrivateKey, existingKey);
+          return; // Keys are valid
+        } catch {
+          // Stale keys (password changed) — fall through
+        }
+      }
+
+      // 2. Check persistent cache (encrypted localStorage + IndexedDB)
+      const cached = await getCachedKeys();
+      if (cached) {
+        try {
+          decrypt(encryptedPrivateKey, cached.sessionKey);
+          sessionStorage.setItem("_session_key", cached.sessionKey);
+          sessionStorage.setItem("_private_key", cached.privateKey);
+          sessionStorage.setItem("_user_key", cached.userKey);
+          return;
+        } catch {
+          // Cache is stale — fall through
+        }
+      }
+
+      // 3. Derive from temp key (just logged in or registered)
+      const tempKey = sessionStorage.getItem("_session_key_temp");
+      if (!tempKey) {
+        window.location = "/users/reauthenticate";
+        return;
+      }
+
       // Decrypt private key with session key
       const privateKey = decrypt(encryptedPrivateKey, tempKey);
 
       // Unseal user_key with keypair
       const userKey = unseal(encryptedUserKey, publicKey, privateKey);
 
-      // Store in sessionStorage
+      // Store in sessionStorage for this tab
       sessionStorage.setItem("_session_key", tempKey);
       sessionStorage.setItem("_private_key", privateKey);
       sessionStorage.setItem("_user_key", userKey);
-
       sessionStorage.removeItem("_session_key_temp");
 
-      // Cache for browser restart
-      cacheKeys(tempKey, privateKey, userKey);
+      // Cache for browser restart (encrypted with Web Crypto)
+      await cacheKeys(tempKey, privateKey, userKey);
     }
   }
 </script>
@@ -597,54 +697,58 @@ from the server to the client via data attributes:
 ## Step 4: Encrypting Resources
 
 Here's how to encrypt a habit (or any resource) before it reaches the server.
+The pattern: intercept the form, encrypt client-side, push encrypted params via
+LiveView event.
 
 ### Colocated Hook for Creating a Resource
 
 ```heex
 <%!-- lib/my_app_web/live/habit_live/index.html.heex --%>
-<.form for={@form} id="new-habit-form" phx-hook=".HabitFormHook">
-  <.input type="text" field={@form[:name]} />
-  <.input type="textarea" field={@form[:encrypted_name]} name="habit[encrypted_name]" />
-  <.input type="textarea" field={@form[:encrypted_description]} name="habit[encrypted_description]" />
-  <button type="submit">Create Habit</button>
-</.form>
+<div id="habit-form-wrapper" phx-hook=".HabitFormHook">
+  <.form for={@form} id="new-habit-form" phx-submit="create_habit">
+    <.input type="text" field={@form[:name]} id="habit-name-input" />
+    <.input type="textarea" field={@form[:description]} id="habit-desc-input" />
+    <button type="submit">Create Habit</button>
+  </.form>
+</div>
 
 <script :type={Phoenix.LiveView.ColocatedHook} name=".HabitFormHook">
   import { ensureReady, generateKey, seal, encrypt } from "../../js/crypto/nacl";
 
   export default {
     mounted() {
-      this.el.addEventListener("submit", async (e) => {
-        const userKey = sessionStorage.getItem("_user_key");
-        if (!userKey) {
-          e.preventDefault();
+      const form = this.el.querySelector("form");
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await ensureReady();
+
+        const privateKey = sessionStorage.getItem("_private_key");
+        const publicKey = sessionStorage.getItem("_public_key");
+        if (!privateKey || !publicKey) {
           window.location = "/users/reauthenticate";
           return;
         }
 
-        e.preventDefault();
-        await ensureReady();
-
-        const name = this.el.querySelector('input[name="habit[name]"]').value;
-        const description = this.el.querySelector('textarea[name="habit[description]"]').value;
-        const publicKey = sessionStorage.getItem("_public_key");
+        const name = this.el.querySelector("#habit-name-input").value;
+        const description = this.el.querySelector("#habit-desc-input").value;
 
         // Generate a per-habit context key
         const habitKey = generateKey();
 
-        // Encrypt the fields
+        // Encrypt the fields with the context key
         const encryptedName = encrypt(name, habitKey);
         const encryptedDescription = encrypt(description, habitKey);
 
-        // Seal the habit key to the user's public key
+        // Seal the context key to the user's public key
         const encryptedKey = seal(habitKey, publicKey);
 
-        // Populate hidden fields
-        this.el.querySelector('input[name="habit[encrypted_name]"]').value = encryptedName;
-        this.el.querySelector('input[name="habit[encrypted_description]"]').value = encryptedDescription;
-        this.el.querySelector('input[name="habit[encrypted_key]"]').value = encryptedKey;
-
-        this.el.submit();
+        // Push encrypted params to the server via LiveView
+        this.pushEvent("create_habit", {
+          encrypted_name: encryptedName,
+          encrypted_description: encryptedDescription,
+          encrypted_key: encryptedKey,
+        });
       });
     }
   }
@@ -653,23 +757,62 @@ Here's how to encrypt a habit (or any resource) before it reaches the server.
 
 ### Server Handler
 
+The server receives only encrypted blobs. It validates structure and stores them.
+
 ```elixir
 defmodule MyAppWeb.HabitLive do
   use MyAppWeb, :live_view
 
-  def handle_event("save", %{"habit" => habit_params}, socket) do
-    attrs = %{
-      encrypted_name: habit_params["encrypted_name"],
-      encrypted_description: habit_params["encrypted_description"],
-      user_id: socket.assigns.current_scope.user.id
-    }
+  def handle_event("create_habit", params, socket) do
+    %{"encrypted_name" => enc_name, "encrypted_description" => enc_desc,
+      "encrypted_key" => enc_key} = params
 
-    case MyApp.Habits.create_habit(attrs) do
-      {:ok, _habit} ->
-        {:noreply, assign(socket, form: to_form(%{}))}
+    user = socket.assigns.current_scope.user
+
+    case MyApp.Habits.create_habit(user, %{
+      encrypted_name: enc_name,
+      encrypted_description: enc_desc,
+      encrypted_key: enc_key
+    }) do
+      {:ok, habit} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Habit created")
+         |> stream_insert(:habits, habit)}
 
       {:error, changeset} ->
         {:noreply, assign(socket, form: to_form(changeset))}
+    end
+  end
+end
+```
+
+### Context Module
+
+```elixir
+defmodule MyApp.Habits do
+  alias MyApp.Repo
+  alias MyApp.Habits.{Habit, UserHabit}
+
+  def create_habit(user, attrs) do
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(:habit, %Habit{
+      user_id: user.id,
+      encrypted_name: attrs.encrypted_name,
+      encrypted_description: attrs.encrypted_description
+    })
+    |> Ecto.Multi.insert(:user_habit, fn %{habit: habit} ->
+      %UserHabit{
+        user_id: user.id,
+        habit_id: habit.id,
+        encrypted_key: attrs.encrypted_key,
+        role: "owner"
+      }
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{habit: habit}} -> {:ok, habit}
+      {:error, _, changeset, _} -> {:error, changeset}
     end
   end
 end
@@ -680,23 +823,23 @@ end
 ```elixir
 defmodule MyApp.Habits.Habit do
   use Ecto.Schema
-  use Cloak.Ecto.Schema, encrypted: [:encrypted_name, :encrypted_description]
 
   schema "habits" do
-    field :encrypted_name, :binary
-    field :encrypted_description, :binary
+    field :encrypted_name, MyApp.Encrypted.Binary
+    field :encrypted_description, MyApp.Encrypted.Binary
 
     belongs_to :user, MyApp.Accounts.User
+    has_many :user_habits, MyApp.Habits.UserHabit
     timestamps()
   end
 end
 
 defmodule MyApp.Habits.UserHabit do
   use Ecto.Schema
-  use Cloak.Ecto.Schema, encrypted: [:encrypted_key]
 
   schema "user_habits" do
-    field :encrypted_key, :binary  # habit_key sealed for this user
+    field :encrypted_key, MyApp.Encrypted.Binary  # context key sealed for this user
+    field :role, :string, default: "owner"
 
     belongs_to :user, MyApp.Accounts.User
     belongs_to :habit, MyApp.Habits.Habit
@@ -705,66 +848,189 @@ defmodule MyApp.Habits.UserHabit do
 end
 ```
 
-## Step 5: Server-Side Key Distribution
+Where `MyApp.Encrypted.Binary` is your Cloak encrypted type (see [Cloak docs](https://hexdocs.pm/cloak_ecto/install.html)).
 
-When User A shares a resource with User B, the server needs to seal the context
-key to User B's public key. User A may be offline, so the server does this using
-the `metamorphic_crypto` NIF.
+## Step 5: Key Distribution (Sharing Access)
+
+When User A shares a resource with User B, someone needs to seal the context key
+to User B's public key. In a true zero-knowledge architecture, **the server never
+unseals or seals context keys** — it doesn't have anyone's private key.
+
+Instead, key distribution is **event-driven and client-side**:
+
+1. Server detects that a member needs a key (invited, pending access)
+2. Server pushes a `push_event` to an online admin/owner's browser
+3. The admin's client **unseals** the context key with their own private key
+4. The admin's client **re-seals** it for the target user's public key
+5. The admin's client pushes the sealed blob back to the server
+6. Server stores it on the target user's join record
+
+This means key distribution happens when an authorized user is online. The server
+orchestrates — it knows *who* needs a key and *whose* public key to seal to — but
+it never touches plaintext key material.
+
+### Server: Detecting Pending Keys
 
 ```elixir
-defmodule MyApp.KeyDistribution do
-  alias MyApp.Accounts
+defmodule MyApp.Groups do
+  import Ecto.Query
 
-  def seal_key_for_user(context_key, user) do
-    # The server can seal a context key to any user's public key
-    # It never sees the plaintext context key — it only handles the sealed blob
-    {:ok, sealed_key} = MetamorphicCrypto.BoxSeal.seal_raw(context_key, user.public_key)
-    sealed_key
-  end
-
-  def distribute_key(habit, user_to_add, sealed_by_user_id) do
-    # Fetch the user's public key
-    user = Accounts.get_user!(user_to_add)
-
-    # In a real app, you'd have the original context key available
-    # from the user_habits record of an existing member
-    existing = Repo.get_by(UserHabit, habit_id: habit.id, user_id: sealed_by_user_id)
-    {:ok, context_key} = MetamorphicCrypto.BoxSeal.open_raw(existing.encrypted_key,
-      existing.user.public_key, existing.user.private_key)
-
-    # Seal it for the new user
-    {:ok, sealed} = MetamorphicCrypto.BoxSeal.seal_raw(context_key, user.public_key)
-
-    Repo.insert!(%UserHabit{
-      user_id: user.id,
-      habit_id: habit.id,
-      encrypted_key: sealed
-    })
+  def pending_key_requests(%Scope{user: user}) do
+    # Find group members who've been invited but don't have a key yet
+    from(gm in GroupMember,
+      join: g in assoc(gm, :group),
+      join: u in assoc(gm, :user),
+      join: admin_gm in GroupMember,
+        on: admin_gm.group_id == g.id and admin_gm.user_id == ^user.id,
+      where: is_nil(gm.encrypted_key),
+      where: admin_gm.role in ["owner", "admin"],
+      where: not is_nil(u.public_key),
+      select: %{
+        group_id: g.id,
+        member_user_id: u.id,
+        member_public_key: u.public_key,
+        member_pq_public_key: u.pq_public_key,
+        admin_encrypted_key: admin_gm.encrypted_key
+      }
+    )
+    |> Repo.all()
   end
 end
 ```
 
+### Server: Pushing to the Client
+
+In your LiveView, on mount or when a new member is added:
+
+```elixir
+defmodule MyAppWeb.GroupsLive do
+  use MyAppWeb, :live_view
+
+  def mount(_params, _session, socket) do
+    pending = MyApp.Groups.pending_key_requests(socket.assigns.current_scope)
+
+    socket =
+      if pending != [] do
+        push_event(socket, "distribute_keys", %{requests: pending})
+      else
+        socket
+      end
+
+    {:ok, socket}
+  end
+
+  # Client sends back the sealed key
+  def handle_event("key_distributed", params, socket) do
+    %{"group_id" => group_id, "member_user_id" => member_user_id,
+      "encrypted_key" => encrypted_key} = params
+
+    # Validate: only admins can distribute, and blob must be well-formed base64
+    with :ok <- validate_admin(socket, group_id),
+         :ok <- validate_encrypted_key(encrypted_key) do
+      MyApp.Groups.store_distributed_key(group_id, member_user_id, encrypted_key)
+    end
+
+    {:noreply, socket}
+  end
+
+  defp validate_encrypted_key(key) when is_binary(key) and byte_size(key) > 0 do
+    case Base.decode64(key) do
+      {:ok, decoded} when byte_size(decoded) >= 80 and byte_size(decoded) <= 2048 -> :ok
+      _ -> {:error, :invalid_encrypted_key}
+    end
+  end
+end
+```
+
+### Client: The KeyDistributor Hook
+
+This hook listens for `distribute_keys` events and does the cryptographic work:
+
+```heex
+<div id="key-distributor" phx-hook=".KeyDistributor" phx-update="ignore"></div>
+
+<script :type={Phoenix.LiveView.ColocatedHook} name=".KeyDistributor">
+  import { ensureReady, unseal, seal } from "../../js/crypto/nacl";
+
+  export default {
+    mounted() {
+      this.handleEvent("distribute_keys", async ({ requests }) => {
+        await ensureReady();
+
+        const privateKey = sessionStorage.getItem("_private_key");
+        const publicKey = sessionStorage.getItem("_public_key");
+        if (!privateKey || !publicKey) return;
+
+        for (const req of requests) {
+          try {
+            // 1. Unseal the context key using MY private key
+            const contextKey = unseal(
+              req.admin_encrypted_key, publicKey, privateKey
+            );
+
+            // 2. Re-seal it for the TARGET user's public key
+            const sealedForMember = seal(contextKey, req.member_public_key);
+
+            // 3. Send the sealed blob back to the server
+            this.pushEvent("key_distributed", {
+              group_id: req.group_id,
+              member_user_id: req.member_user_id,
+              encrypted_key: sealedForMember,
+            });
+          } catch (err) {
+            console.error("Key distribution failed:", err);
+          }
+        }
+      });
+    }
+  }
+</script>
+```
+
+### When Can the Server Use MetamorphicCrypto for Key Distribution?
+
+The server-side NIF is useful for key distribution in specific scenarios where
+you intentionally grant the server temporary access to a context key:
+
+- **Account provisioning** — generating keypairs and the initial `user_key` seal
+  during registration (before the user has a client session)
+- **Oban background jobs** — re-sealing context keys during a PQ migration where
+  the server has been explicitly given a batch of plaintext context keys by the
+  client for re-sealing
+- **Admin-sealed resources** — if your app has a concept of "server-managed"
+  resources that aren't zero-knowledge (e.g., system announcements encrypted for
+  all users), the server can seal to each user's public key
+
+For true zero-knowledge, the client always does the seal/unseal. The server
+stores and routes opaque blobs.
+
 ## Step 6: Displaying Encrypted Data
 
 When sending encrypted data to the client, pass the encrypted blobs and keys
-as data attributes on the LiveView elements:
+as data attributes on the LiveView elements. The hook decrypts and updates the
+DOM client-side.
 
 ```heex
-<div
-  :for={habit <- @habits}
-  id={"habit-#{habit.id}"}
-  phx-hook=".HabitCard"
-  data-encrypted-name={habit.encrypted_name}
-  data-encrypted-description={habit.encrypted_description}
-  data-encrypted-key={habit.user_habit.encrypted_key}
->
-  <p class="text-base-content">Encrypted — decrypting...</p>
+<div id="habits" phx-update="stream">
+  <div
+    :for={{id, habit} <- @streams.habits}
+    id={id}
+    phx-hook=".HabitCard"
+    data-encrypted-name={habit.encrypted_name}
+    data-encrypted-description={habit.encrypted_description}
+    data-encrypted-key={habit.user_habit.encrypted_key}
+  >
+    <p class="text-base-content/50 animate-pulse">Decrypting...</p>
+  </div>
 </div>
 ```
 
+The hook manages its own DOM after decryption, so content is only updated
+client-side.
+
 ### The Decryption Hook
 
-```javascript
+```heex
 <script :type={Phoenix.LiveView.ColocatedHook} name=".HabitCard">
   import { ensureReady, decrypt, unseal } from "../../js/crypto/nacl";
 
@@ -772,26 +1038,33 @@ as data attributes on the LiveView elements:
     async mounted() {
       await ensureReady();
 
-      const el = this.el;
       const privateKey = sessionStorage.getItem("_private_key");
       const publicKey = sessionStorage.getItem("_public_key");
 
-      if (!privateKey) {
+      if (!privateKey || !publicKey) {
         window.location = "/users/reauthenticate";
         return;
       }
 
-      // Unseal the habit key
-      const encryptedKey = el.dataset.encryptedKey;
-      const habitKey = unseal(encryptedKey, publicKey, privateKey);
+      const el = this.el;
 
-      // Decrypt the fields
-      const name = decrypt(el.dataset.encryptedName, habitKey);
-      const description = decrypt(el.dataset.encryptedDescription, habitKey);
+      try {
+        // Unseal the per-resource context key
+        const habitKey = unseal(el.dataset.encryptedKey, publicKey, privateKey);
 
-      // Update the card
-      el.querySelector('[data-decrypt-name]').textContent = name;
-      el.querySelector('[data-decrypt-description]').textContent = description;
+        // Decrypt the fields
+        const name = decrypt(el.dataset.encryptedName, habitKey);
+        const description = decrypt(el.dataset.encryptedDescription, habitKey);
+
+        // Update the DOM
+        el.innerHTML = `
+          <h3 class="font-semibold text-base-content">${name}</h3>
+          <p class="text-base-content/70">${description}</p>
+        `;
+      } catch (err) {
+        el.innerHTML = `<p class="text-error">Failed to decrypt</p>`;
+        console.error("Decryption failed:", err);
+      }
     }
   }
 </script>
@@ -827,7 +1100,29 @@ during KDF derivation and immediately discarded.
 
 The persistent key cache uses the Web Crypto API with a non-extractable AES-256-GCM
 wrapping key stored in IndexedDB. An adversary who copies localStorage from disk
-gets only encrypted ciphertext.
+gets only encrypted ciphertext. The wrapping key cannot be extracted by JavaScript
+— it can only be used for encrypt/decrypt operations via the Web Crypto API.
+
+Clear the cache on logout and password change:
+
+```javascript
+function onLogout() {
+  sessionStorage.clear();
+  localStorage.removeItem("_my_app_key_cache");
+  indexedDB.deleteDatabase("_my_app_crypto");
+}
+```
+
+### Salt Endpoint is a User Enumeration Vector
+
+The `/api/auth/salt` endpoint necessarily reveals whether an email exists (different
+response for known vs. unknown users). Mitigate this with:
+
+1. **Timing normalization** — enforce minimum response time (100ms+)
+2. **Deterministic fake salts** — HMAC-derived, so repeated queries for the same
+   unknown email return the same fake (no timing delta on cache hits)
+3. **Rate limiting** — 10 requests/minute per IP minimum. Use IP hashing for
+   privacy in logs.
 
 ### Cloak is Defense-in-Depth, Not the Primary Protection
 
@@ -841,6 +1136,13 @@ This library uses a single-key design per context. If you need key rotation
 (multiple active keys with version-tagged ciphertext), use Cloak for the Ecto
 layer. MetamorphicCrypto's server-side role is key distribution and generation,
 not rotation.
+
+### Key Distribution Requires an Online Admin
+
+In the event-driven model, key distribution only happens when an authorized user
+(admin/owner) is online. If no admin is online when a new member is invited, the
+member gets their key the next time any admin loads the page. Design your UI to
+show a "pending access" state for members awaiting keys.
 
 ## Reading
 
