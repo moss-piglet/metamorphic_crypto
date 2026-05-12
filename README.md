@@ -147,7 +147,7 @@ and wraps it with [Cloak](https://hex.pm/packages/cloak) as an additional layer.
 │                                    │                            │
 │                            decrypt private_key                  │
 │                                    │                            │
-│  plaintext ──► MetamorphicCrypto.encrypt(key) ──► ciphertext ─┐ │
+│  plaintext ──► metamorphic-crypto (WASM) ──► ciphertext ──────┐ │
 │                                                               │ │
 └───────────────────────────────────────────────────────────────┼─┘
                                                                 │
