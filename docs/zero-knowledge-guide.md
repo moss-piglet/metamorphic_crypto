@@ -1,11 +1,17 @@
 # Building Zero-Knowledge Phoenix Apps
 
 A practical guide to implementing full client-side zero-knowledge encryption in a
-Phoenix LiveView application using `metamorphic_crypto` and the `metamorphic-crypto`
-Rust core compiled to WASM.
+Phoenix LiveView application using the `metamorphic-crypto` Rust core compiled to
+WASM for the browser.
 
 This guide walks through how [Metamorphic](https://metamorphic.app) implements its
 encryption architecture — the same pattern you can use in your own app.
+
+**Note on the `metamorphic_crypto` Elixir library:** This guide primarily uses
+the WASM build of the Rust crate for client-side crypto. The Elixir NIF library
+is a server-side companion — useful for replacing `enacl`, generating test
+fixtures, or during a gradual transition from server-side to client-side crypto.
+In a full ZK architecture, the server doesn't need crypto on user data at all.
 
 ## What You'll Build
 

@@ -3,9 +3,9 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/metamorphic_crypto.svg)](https://hex.pm/packages/metamorphic_crypto)
 [![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/metamorphic_crypto)
 
-Zero-knowledge end-to-end encryption for Elixir.
+NaCl-compatible encryption for Elixir — server-side.
 
-NaCl-compatible symmetric and public-key encryption, Argon2id key derivation,
+Symmetric and public-key encryption, Argon2id key derivation,
 **ML-KEM-768 + X25519 hybrid post-quantum encryption**, and human-readable
 recovery keys — powered by Rust NIFs with precompiled binaries.
 
@@ -121,28 +121,46 @@ mix metamorphic_crypto.gen.key
 
 ## Architecture Patterns
 
-### Full Zero-Knowledge (Client + Server)
+### When to Use This Library
 
-**Note:** This library handles the server-side half of a ZK architecture. For
-full zero-knowledge where plaintext never touches the server, you also need
-client-side encryption in the browser using the WASM build of the same Rust
-core in a LiveView JS hook. Both produce identical wire-compatible ciphertext —
-data sealed by the NIF can be unsealed by the WASM module, and vice versa.
+MetamorphicCrypto runs **server-side** in the BEAM VM. Use it when:
 
-See the [Zero-Knowledge Guide](docs/zero-knowledge-guide.md) for a full walkthrough.
-Here's how the pieces fit:
+- **You're replacing `enacl`** — drop-in replacement with precompiled binaries
+  (no libsodium C compilation), same wire format, plus post-quantum
+- **Your server legitimately holds encryption keys** — server-side NaCl crypto
+  that's faster than pure Elixir and wire-compatible with libsodium clients
+- **You need post-quantum encryption server-side** — ML-KEM-768 + X25519, first
+  on Hex
+- **You're transitioning to ZK incrementally** — existing server-side operations
+  stay on MetamorphicCrypto while new features move to client-side WASM
+- **Tests and fixtures** — generate NaCl-compatible ciphertext in ExUnit tests
 
-- **Client (WASM in JS hook):** encrypts user data, derives session keys from passwords, decrypts on read
-- **Server (this library):** key distribution, background re-keying, account provisioning, keypair generation
-- **Cloak:** Ecto encrypted types, blind indexes, defense-in-depth layer wrapping the already-encrypted blobs
+### What This Library Does NOT Do
 
-This is how [Metamorphic](https://metamorphic.app) uses this library. The client
-encrypts data before it reaches the server. The server stores opaque ciphertext
-and wraps it with [Cloak](https://hex.pm/packages/cloak) as an additional layer.
+This library does **not** give you client-side zero-knowledge encryption. For
+full ZK where the server never sees plaintext, the encryption must happen in
+the browser — that requires the WASM build of the same Rust core, loaded via
+a LiveView JS hook.
+
+In a full ZK architecture (like [Metamorphic](https://metamorphic.app)), the
+server is a dumb storage layer. The client does all the crypto. The server
+doesn't need this library for that — it just stores and retrieves opaque blobs.
+
+### Full Zero-Knowledge Architecture
+
+If you want to build a ZK app, see the
+[Zero-Knowledge Guide](docs/zero-knowledge-guide.md). The short version:
+
+- **Client (WASM):** does ALL the encryption/decryption
+- **Server:** stores opaque ciphertext, orchestrates key distribution events,
+  wraps blobs with Cloak for defense-in-depth
+- **This library's role:** optional — useful during migration, for generating
+  test fixtures, or if you have specific server-side operations that need
+  NaCl-compatible crypto
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Client (browser/mobile)                                        │
+│  Client (browser)                                               │
 │                                                                 │
 │  password ──► Argon2id KDF ──► session_key                      │
 │                                    │                            │
@@ -161,52 +179,55 @@ and wraps it with [Cloak](https://hex.pm/packages/cloak) as an additional layer.
 │  Cloak wraps it in AES-256-GCM before writing to DB             │
 │  (defense-in-depth against DB-level compromise)                 │
 │                                                                 │
-│  Uses MetamorphicCrypto server-side for:                        │
-│  • Key generation for new contexts                              │
-│  • Sealing keys to users (key distribution)                     │
-│  • Re-keying operations                                         │
+│  MetamorphicCrypto (optional): test fixtures, migration helper  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-In this pattern, use **Cloak** for the Ecto layer (encrypted types, blind indexes,
-key rotation) and **MetamorphicCrypto** for the E2E crypto operations.
+### Pattern: Replacing enacl
 
-### Pattern 2: Server-Side Encryption at Rest
-
-If you just need to encrypt fields at rest and the server holds the keys,
-use [Cloak](https://hex.pm/packages/cloak_ecto) directly. It has built-in key
-rotation, multiple Ecto types (Binary, Map, Integer, Float), and HMAC blind
-indexes.
-
-MetamorphicCrypto isn't the right tool for this pattern.
-
-### Pattern 3: Transitioning to Zero-Knowledge
-
-Start with Cloak for server-side encryption. When you're ready to move to a ZK
-architecture, add MetamorphicCrypto for client-side operations. Cloak stays as
-the defense-in-depth layer.
+If you currently use `enacl` for server-side NaCl crypto, MetamorphicCrypto
+is a direct replacement with better DX:
 
 ```elixir
-# mix.exs
-{:cloak_ecto, "~> 1.3"},       # Ecto types, blind indexes, key rotation
-{:metamorphic_crypto, "~> 0.1"} # E2E crypto primitives
+# Before (enacl — requires compiling libsodium)
+:enacl.crypto_secretbox(plaintext, nonce, key)
+
+# After (MetamorphicCrypto — precompiled, no C toolchain)
+MetamorphicCrypto.SecretBox.encrypt(plaintext, key)
 ```
+
+Same ciphertext format. No data migration needed.
+
+### Pattern: Transitioning to Zero-Knowledge
+
+If your app currently does server-side encryption (with enacl or Cloak):
+
+1. **Replace enacl** with MetamorphicCrypto (same wire format, no migration)
+2. **Add the WASM client** to your Phoenix app (LiveView JS hooks)
+3. **Move operations to the client** one by one — new features use client-side
+   crypto, old features stay server-side temporarily
+4. **Eventually** the server only stores opaque blobs and you may not need
+   this library at all for user-data crypto
+
+MetamorphicCrypto makes step 1 easy and ensures wire compatibility between
+server and client during the transition (both produce identical ciphertext
+from the same Rust core).
 
 ## Using with Cloak
 
-MetamorphicCrypto and Cloak solve different problems and work great together:
+MetamorphicCrypto and Cloak solve different problems:
 
 | | Cloak | MetamorphicCrypto |
 |--|-------|-------------------|
-| **Purpose** | Server-side encryption-at-rest | Zero-knowledge E2E encryption |
-| **Who holds the key** | Server (env vars) | User (derived from password) |
+| **Purpose** | Server-side encryption-at-rest | NaCl-compatible crypto primitives |
+| **Who holds the key** | Server (env vars) | Depends on your architecture |
 | **Cipher** | AES-256-GCM | XSalsa20-Poly1305, ML-KEM-768 |
-| **Key rotation** | Built-in | N/A (user owns keys) |
+| **Key rotation** | Built-in | — |
 | **Ecto types** | Binary, Map, Integer, HMAC | — |
-| **Use for** | PII at rest, blind indexes | Client-side crypto, key exchange, PQ |
+| **Use for** | PII at rest, blind indexes | NaCl ops, enacl replacement, PQ |
 
-For encrypted Ecto fields and blind indexes, use Cloak. For E2E encryption
-primitives (key derivation, sealing, post-quantum), use MetamorphicCrypto.
+For encrypted Ecto fields and blind indexes, use Cloak. For NaCl-compatible
+encryption operations and post-quantum crypto, use MetamorphicCrypto.
 
 ## Modules
 
