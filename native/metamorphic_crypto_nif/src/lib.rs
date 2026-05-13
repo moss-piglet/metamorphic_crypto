@@ -91,7 +91,7 @@ fn nif_unseal_from_user(
     .map_err(to_nif_error)
 }
 
-// ─── Hybrid PQ KEM ──────────────────────────────────────────────────────────
+// ─── Hybrid PQ KEM (Cat-3: ML-KEM-768) ───────────────────────────────────────
 
 #[rustler::nif]
 fn nif_generate_hybrid_keypair() -> (String, String) {
@@ -114,6 +114,20 @@ fn nif_hybrid_open(ciphertext_b64: &str, seed_b64: &str) -> NifResult<String> {
 #[rustler::nif]
 fn nif_is_hybrid_ciphertext(ciphertext_b64: &str) -> bool {
     hybrid::is_hybrid_ciphertext(ciphertext_b64)
+}
+
+// ─── Hybrid PQ KEM (Cat-5: ML-KEM-1024) ─────────────────────────────────────
+
+#[rustler::nif]
+fn nif_generate_hybrid_keypair_1024() -> (String, String) {
+    let kp = hybrid::generate_hybrid_keypair_1024();
+    (kp.public_key, kp.secret_key)
+}
+
+#[rustler::nif]
+fn nif_hybrid_seal_1024(plaintext_b64: &str, combined_pk_b64: &str) -> NifResult<String> {
+    let pt = b64::decode(plaintext_b64).map_err(to_nif_error)?;
+    hybrid::hybrid_seal_1024(&pt, combined_pk_b64).map_err(to_nif_error)
 }
 
 // ─── Key Generation ──────────────────────────────────────────────────────────

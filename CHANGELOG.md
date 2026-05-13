@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.0 (2026-05-13)
+
+- **Breaking**: Remove vendored `metamorphic-crypto` Rust crate — now depends on
+  [`metamorphic-crypto` v0.2.0](https://crates.io/crates/metamorphic-crypto) from crates.io
+- Add ML-KEM-1024 + X25519 (Cat-5, NIST Category 5, ~AES-256) hybrid encryption:
+  - `MetamorphicCrypto.Hybrid.generate_keypair_1024/0` — generate Cat-5 keypair
+  - `MetamorphicCrypto.Hybrid.seal_1024/2` — encrypt with Cat-5
+  - `MetamorphicCrypto.Hybrid.seal_raw_1024/2` — encrypt raw bytes with Cat-5
+- `MetamorphicCrypto.Hybrid.open/2` now auto-detects Cat-3 (v2) and Cat-5 (v3) ciphertext
+- `MetamorphicCrypto.Hybrid.hybrid_ciphertext?/1` now detects both v2 and v3 formats
+
 ## v0.1.2 (2026-05-12)
 
 - Add explicit `targets` list to `RustlerPrecompiled` config
