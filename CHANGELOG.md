@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.2 (2026-05-12)
+
+- Add explicit `targets` list to `RustlerPrecompiled` config
+  - Prevents download attempts for unsupported platforms (e.g. `arm-unknown-linux-gnueabihf`)
+  - `mix rustler_precompiled.download --all` now only fetches the 5 supported targets
+
 ## v0.1.1 (2026-05-12)
 
 - Fix precompiled NIF loading on macOS and Windows

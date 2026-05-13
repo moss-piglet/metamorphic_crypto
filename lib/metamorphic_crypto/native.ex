@@ -9,7 +9,14 @@ defmodule MetamorphicCrypto.Native do
     crate: "metamorphic_crypto_nif",
     base_url: "https://github.com/moss-piglet/metamorphic_crypto/releases/download/v#{version}",
     force_build: System.get_env("METAMORPHIC_CRYPTO_BUILD") in ["1", "true"],
-    version: version
+    version: version,
+    targets: [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
 
   # Key Derivation
   def nif_derive_session_key(_password, _salt_b64), do: :erlang.nif_error(:nif_not_loaded)
