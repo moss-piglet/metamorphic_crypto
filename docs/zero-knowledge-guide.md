@@ -136,20 +136,20 @@ See the [Client Setup](#client-setup) section below.
 
 ### 1. Add the WASM Module
 
-Build the `metamorphic-crypto` Rust crate to WASM (from crates.io or a local clone):
+Build the [`metamorphic-crypto`](https://crates.io/crates/metamorphic-crypto) Rust crate to WASM:
 
 ```bash
-# Clone and build, or use cargo install to get the source
-cargo install --git https://github.com/moss-piglet/metamorphic-crypto
-wasm-pack build --target web --out-dir pkg
+# Clone the crate and build with wasm-pack
+git clone --depth 1 https://github.com/moss-piglet/metamorphic-crypto.git
+wasm-pack build metamorphic-crypto --target web --out-dir pkg --no-typescript
 ```
 
 Copy the generated files to your Phoenix app:
 
 ```bash
-cp pkg/metamorphic_crypto.js assets/vendor/metamorphic-crypto/
-cp pkg/metamorphic_crypto_bg.wasm assets/vendor/metamorphic-crypto/
-cp pkg/metamorphic_crypto.d.ts assets/vendor/metamorphic-crypto/
+mkdir -p assets/vendor/metamorphic-crypto
+cp metamorphic-crypto/pkg/metamorphic_crypto.js assets/vendor/metamorphic-crypto/
+cp metamorphic-crypto/pkg/metamorphic_crypto_bg.wasm assets/vendor/metamorphic-crypto/
 ```
 
 Then in `assets/js/app.js`, import and configure esbuild to serve the WASM:
@@ -1249,5 +1249,6 @@ show a "pending access" state for members awaiting keys.
 — the production reference implementation
 - [What Post-Quantum Encryption Means for Your Data](https://dev.to/mosspiglet/what-post-quantum-encryption-means-for-your-data)
 - [Cloak](https://hex.pm/packages/cloak) — Ecto encrypted types and key rotation
-- [metamorphic-crypto](https://github.com/moss-piglet/metamorphic-crypto)
+- [metamorphic-crypto](https://crates.io/crates/metamorphic-crypto) — Rust crate on crates.io
+- [metamorphic_crypto](https://hex.pm/packages/metamorphic_crypto) — Elixir NIF wrapper on Hex
 - [libsodium documentation](https://doc.libsodium.org/) — wire format reference

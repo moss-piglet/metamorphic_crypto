@@ -6,7 +6,7 @@
 NaCl-compatible encryption for Elixir — server-side.
 
 Symmetric and public-key encryption, Argon2id key derivation,
-**ML-KEM-768 + X25519 hybrid post-quantum encryption**, and human-readable
+**ML-KEM-768/1024 + X25519 hybrid post-quantum encryption**, and human-readable
 recovery keys — powered by Rust NIFs with precompiled binaries.
 
 ```elixir
@@ -22,7 +22,7 @@ Add `metamorphic_crypto` to your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:metamorphic_crypto, "~> 0.1"}
+    {:metamorphic_crypto, "~> 0.2"}
   ]
 end
 ```
@@ -72,14 +72,33 @@ Anonymous encryption to a recipient's public key. Only they can decrypt.
 
 ### Post-Quantum Hybrid Encryption
 
-ML-KEM-768 + X25519 — quantum-resistant, backward-compatible.
+Two security levels available. Cat-3 (ML-KEM-768, ~AES-192) is the default.
+Cat-5 (ML-KEM-1024, ~AES-256) is available for highest-security use cases.
 
 ```elixir
+# Cat-3 (default) — ML-KEM-768 + X25519
 {pq_pk, pq_sk} = MetamorphicCrypto.Hybrid.generate_keypair()
 
 {:ok, ciphertext} = MetamorphicCrypto.Hybrid.seal("quantum-safe", pq_pk)
 {:ok, "quantum-safe"} = MetamorphicCrypto.Hybrid.open(ciphertext, pq_sk)
+
+# Cat-5 (opt-in) — ML-KEM-1024 + X25519, highest security
+{pq_pk_1024, pq_sk_1024} = MetamorphicCrypto.Hybrid.generate_keypair_1024()
+
+{:ok, ciphertext} = MetamorphicCrypto.Hybrid.seal_1024("top secret", pq_pk_1024)
+{:ok, "top secret"} = MetamorphicCrypto.Hybrid.open(ciphertext, pq_sk_1024)
 ```
+
+`open/2` auto-detects the ciphertext format from the version tag byte:
+
+| Version | Format | Security |
+|---------|--------|----------|
+| (none)  | Legacy X25519 sealed box | Classical |
+| `0x02`  | ML-KEM-768 + X25519 (Cat-3) | ~AES-192, NIST Category 3 |
+| `0x03`  | ML-KEM-1024 + X25519 (Cat-5) | ~AES-256, NIST Category 5 |
+
+This means you can upgrade security levels progressively — existing ciphertext
+always decrypts correctly regardless of which level it was sealed at.
 
 ### Unified Seal/Unseal (Auto-Detecting)
 
@@ -231,7 +250,7 @@ MetamorphicCrypto and Cloak solve different problems:
 |--|-------|-------------------|
 | **Purpose** | Server-side encryption-at-rest | NaCl-compatible crypto primitives |
 | **Who holds the key** | Server (env vars) | Depends on your architecture |
-| **Cipher** | AES-256-GCM | XSalsa20-Poly1305, ML-KEM-768 |
+| **Cipher** | AES-256-GCM | XSalsa20-Poly1305, ML-KEM-768/1024 |
 | **Key rotation** | Built-in | — |
 | **Ecto types** | Binary, Map, Integer, HMAC | — |
 | **Use for** | PII at rest, blind indexes | NaCl ops, enacl replacement, PQ |
@@ -246,7 +265,7 @@ encryption operations and post-quantum crypto, use MetamorphicCrypto.
 | `MetamorphicCrypto` | Top-level convenience API |
 | `MetamorphicCrypto.SecretBox` | XSalsa20-Poly1305 symmetric encryption |
 | `MetamorphicCrypto.BoxSeal` | X25519 anonymous sealed box |
-| `MetamorphicCrypto.Hybrid` | ML-KEM-768 + X25519 post-quantum hybrid |
+| `MetamorphicCrypto.Hybrid` | ML-KEM-768/1024 + X25519 post-quantum hybrid |
 | `MetamorphicCrypto.Seal` | Unified seal/unseal with auto-detection |
 | `MetamorphicCrypto.KDF` | Argon2id key derivation |
 | `MetamorphicCrypto.Keys` | Key generation and private key management |
@@ -256,10 +275,10 @@ encryption operations and post-quantum crypto, use MetamorphicCrypto.
 
 All ciphertext produced by this library is **byte-compatible** with:
 
-- [libsodium](https://doc.libsodium.org/) / NaCl
-- [TweetNaCl.js](https://tweetnacl.js.org/)
+- [libsodium](https://doc.libsodium.org/) / NaCl (symmetric + sealed box)
+- [TweetNaCl.js](https://tweetnacl.js.org/) (symmetric + sealed box)
 - [enacl](https://github.com/aeternity/enacl) (Erlang libsodium bindings)
-- The `metamorphic-crypto` WASM module (browser clients)
+- The [`metamorphic-crypto`](https://crates.io/crates/metamorphic-crypto) WASM module (browser clients)
 
 This means you can:
 - **Replace `enacl`** in existing projects with no data migration
