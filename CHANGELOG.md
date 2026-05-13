@@ -2,8 +2,9 @@
 
 ## v0.2.0 (2026-05-13)
 
-- **Breaking**: Remove vendored `metamorphic-crypto` Rust crate — now depends on
-  [`metamorphic-crypto` v0.2.0](https://crates.io/crates/metamorphic-crypto) from crates.io
+- Switch from vendored `metamorphic-crypto` Rust source to
+  [`metamorphic-crypto` v0.2.0](https://crates.io/crates/metamorphic-crypto) on crates.io
+  (no user-facing changes — the public Elixir API is fully backwards compatible)
 - Add ML-KEM-1024 + X25519 (Cat-5, NIST Category 5, ~AES-256) hybrid encryption:
   - `MetamorphicCrypto.Hybrid.generate_keypair_1024/0` — generate Cat-5 keypair
   - `MetamorphicCrypto.Hybrid.seal_1024/2` — encrypt with Cat-5
