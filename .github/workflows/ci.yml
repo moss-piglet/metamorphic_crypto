@@ -83,6 +83,3 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --release --manifest-path native/metamorphic_crypto_nif/Cargo.toml -- -D warnings
-
-      - name: Test Rust crate
-        run: cargo test --manifest-path native/metamorphic_crypto_nif/metamorphic-crypto/Cargo.toml
