@@ -122,7 +122,7 @@ Add these to your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:metamorphic_crypto, "~> 0.1"},
+    {:metamorphic_crypto, "~> 0.2"},
     {:cloak_ecto, "~> 1.3"},
     {:argon2_elixir, "~> 4.0"}   # for password hashing
   ]
@@ -136,10 +136,11 @@ See the [Client Setup](#client-setup) section below.
 
 ### 1. Add the WASM Module
 
-Build the `metamorphic-crypto` Rust crate to WASM, or download the prebuilt module:
+Build the `metamorphic-crypto` Rust crate to WASM (from crates.io or a local clone):
 
 ```bash
-# From the metamorphic-crypto repo
+# Clone and build, or use cargo install to get the source
+cargo install --git https://github.com/moss-piglet/metamorphic-crypto
 wasm-pack build --target web --out-dir pkg
 ```
 
