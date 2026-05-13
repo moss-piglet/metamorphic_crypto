@@ -64,7 +64,12 @@ jobs:
           SOURCE="native/metamorphic_crypto_nif/target/${TARGET}/release/${LIBNAME}.${EXT}"
           ARCHIVE="${LIBNAME}-${{ github.ref_name }}-nif-${NIF_VERSION}-${TARGET}.so.tar.gz"
 
-          tar -czf "${ARCHIVE}" -C "$(dirname ${SOURCE})" "$(basename ${SOURCE})"
+          # RustlerPrecompiled expects the file inside the tar to match the
+          # archive name (minus .tar.gz). On macOS the compiled binary is
+          # .dylib but must be named .so for Erlang's NIF loader.
+          INNER_NAME="${LIBNAME}-${{ github.ref_name }}-nif-${NIF_VERSION}-${TARGET}.so"
+          cp "${SOURCE}" "${INNER_NAME}"
+          tar -czf "${ARCHIVE}" "${INNER_NAME}"
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Package (windows)
@@ -78,7 +83,11 @@ jobs:
           SOURCE="native/metamorphic_crypto_nif/target/${TARGET}/release/${LIBNAME}.dll"
           ARCHIVE="${LIBNAME}-${{ github.ref_name }}-nif-${NIF_VERSION}-${TARGET}.dll.tar.gz"
 
-          tar -czf "${ARCHIVE}" -C "$(dirname ${SOURCE})" "$(basename ${SOURCE})"
+          # RustlerPrecompiled expects the file inside the tar to match the
+          # archive name (minus .tar.gz).
+          INNER_NAME="${LIBNAME}-${{ github.ref_name }}-nif-${NIF_VERSION}-${TARGET}.dll"
+          cp "${SOURCE}" "${INNER_NAME}"
+          tar -czf "${ARCHIVE}" "${INNER_NAME}"
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact

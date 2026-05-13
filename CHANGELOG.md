@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1 (2026-05-12)
+
+- Fix precompiled NIF loading on macOS and Windows
+  - Binary inside tar archive was named incorrectly (`libmetamorphic_crypto_nif.dylib`
+    instead of the versioned `.so` name that RustlerPrecompiled expects)
+  - Users without Rust installed would get `nif_not_loaded` errors
+
 ## v0.1.0 (2026-05-11)
 
 - Initial release
