@@ -10,6 +10,7 @@ defmodule MetamorphicCrypto.Native do
     base_url: "https://github.com/moss-piglet/metamorphic_crypto/releases/download/v#{version}",
     force_build: System.get_env("METAMORPHIC_CRYPTO_BUILD") in ["1", "true"],
     version: version,
+    nif_versions: ["2.15", "2.16", "2.17"],
     targets: [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",
