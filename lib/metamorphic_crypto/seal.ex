@@ -5,11 +5,20 @@ defmodule MetamorphicCrypto.Seal do
   This module provides the highest-level encryption API. It automatically
   selects the best available algorithm:
 
-  - If a post-quantum public key is provided, uses **ML-KEM-768 + X25519 hybrid**
+  - If a post-quantum public key is provided, uses **ML-KEM + X25519 hybrid**
   - Otherwise, falls back to **X25519 sealed box** (NaCl-compatible)
 
   On decryption, the format is auto-detected from the ciphertext header byte,
   so old (legacy) and new (PQ) ciphertexts can coexist seamlessly.
+
+  ## Security Levels
+
+  When sealing with a PQ key, pass `:level` to choose the NIST category:
+
+  - `:cat3` — ML-KEM-768 + X25519 (~AES-192). Default.
+  - `:cat5` — ML-KEM-1024 + X25519 (~AES-256).
+
+  Decryption always auto-detects the level from the ciphertext header.
 
   ## Usage
 
@@ -18,30 +27,41 @@ defmodule MetamorphicCrypto.Seal do
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("data", pk)
       {:ok, "data"} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk)
 
-      # Post-quantum hybrid (automatic upgrade)
+      # Post-quantum hybrid Cat-3 (default)
       {pq_pk, pq_sk} = MetamorphicCrypto.Hybrid.generate_keypair()
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("data", pk, pq_public_key: pq_pk)
       {:ok, "data"} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
 
+      # Post-quantum hybrid Cat-5 (highest security)
+      {pq_pk, pq_sk} = MetamorphicCrypto.Hybrid.generate_keypair(:cat5)
+      {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("data", pk, pq_public_key: pq_pk, level: :cat5)
+      {:ok, "data"} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
+
   """
 
-  alias MetamorphicCrypto.Native
+  alias MetamorphicCrypto.{BoxSeal, Hybrid, Native}
 
   @doc """
   Seal plaintext (UTF-8 string) to a user's key(s).
 
   ## Options
 
-  - `:pq_public_key` — if provided, uses hybrid ML-KEM-768 + X25519 encryption.
+  - `:pq_public_key` — if provided, uses hybrid ML-KEM + X25519 encryption.
     Otherwise uses classical X25519 sealed box.
+  - `:level` — `t:MetamorphicCrypto.Hybrid.security_level/0`, either `:cat3`
+    (default) or `:cat5`. Only applies when `:pq_public_key` is present.
 
   ## Examples
 
       # Classical
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("secret", public_key)
 
-      # Post-quantum
+      # Post-quantum Cat-3 (default)
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("secret", public_key, pq_public_key: pq_pk)
+
+      # Post-quantum Cat-5
+      {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("secret", public_key,
+        pq_public_key: pq_pk, level: :cat5)
 
   """
   @spec seal_for_user(plaintext :: String.t(), public_key_b64 :: String.t(), opts :: keyword()) ::
@@ -55,6 +75,7 @@ defmodule MetamorphicCrypto.Seal do
   Seal raw bytes (as base64) to a user's key(s).
 
   Same as `seal_for_user/3` but accepts pre-encoded base64 plaintext.
+  Supports the same options (`:pq_public_key`, `:level`).
   """
   @spec seal_for_user_raw(
           plaintext_b64 :: String.t(),
@@ -64,10 +85,23 @@ defmodule MetamorphicCrypto.Seal do
           {:ok, String.t()} | {:error, String.t()}
   def seal_for_user_raw(plaintext_b64, public_key_b64, opts \\ []) do
     pq_pk = Keyword.get(opts, :pq_public_key)
+    level = Keyword.get(opts, :level, :cat3)
 
-    case Native.nif_seal_for_user(plaintext_b64, public_key_b64, pq_pk) do
-      {:error, reason} -> {:error, reason}
-      result -> {:ok, result}
+    cond do
+      is_nil(pq_pk) or pq_pk == "" ->
+        # No PQ key — fall back to classical X25519 sealed box
+        BoxSeal.seal_raw(plaintext_b64, public_key_b64)
+
+      level == :cat5 ->
+        # Cat-5: use ML-KEM-1024 NIF
+        Hybrid.seal_raw(plaintext_b64, pq_pk, :cat5)
+
+      true ->
+        # Cat-3 (default): use the existing unified seal NIF
+        case Native.nif_seal_for_user(plaintext_b64, public_key_b64, pq_pk) do
+          {:error, reason} -> {:error, reason}
+          ct -> {:ok, ct}
+        end
     end
   end
 
@@ -77,7 +111,7 @@ defmodule MetamorphicCrypto.Seal do
   ## Options
 
   - `:pq_secret_key` — the hybrid ML-KEM secret key. Required for decrypting
-    hybrid (v2) ciphertexts. Safe to always pass — legacy ciphertexts are
+    hybrid (v2/v3) ciphertexts. Safe to always pass — legacy ciphertexts are
     detected and decrypted with the classical key regardless.
 
   ## Examples
@@ -85,7 +119,7 @@ defmodule MetamorphicCrypto.Seal do
       # Classical
       {:ok, plaintext} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk)
 
-      # With PQ key available (auto-detects format)
+      # With PQ key available (auto-detects format and level)
       {:ok, plaintext} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
 
   """

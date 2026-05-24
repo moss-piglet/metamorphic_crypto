@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.1 (2026-05-23)
+
+- Add `t:MetamorphicCrypto.Hybrid.security_level/0` type (`:cat3 | :cat5`)
+- `MetamorphicCrypto.Hybrid.generate_keypair/1` now accepts an optional security
+  level — `generate_keypair(:cat5)` for ML-KEM-1024, `generate_keypair()` for
+  ML-KEM-768 (default, unchanged behavior)
+- `MetamorphicCrypto.Hybrid.seal/3` and `seal_raw/3` now accept an optional
+  security level parameter
+- `MetamorphicCrypto.Seal.seal_for_user/3` and `seal_for_user_raw/3` now accept
+  a `:level` option (`:cat3` or `:cat5`) for choosing the PQ security level when
+  a PQ public key is provided
+- Existing `generate_keypair_1024/0`, `seal_1024/2`, and `seal_raw_1024/2` are
+  preserved as convenience aliases
+- All changes are backwards compatible — no NIF or binary changes required
+
 ## v0.2.0 (2026-05-13)
 
 - Switch from vendored `metamorphic-crypto` Rust source to
