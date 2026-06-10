@@ -152,6 +152,18 @@ cp metamorphic-crypto/pkg/metamorphic_crypto.js assets/vendor/metamorphic-crypto
 cp metamorphic-crypto/pkg/metamorphic_crypto_bg.wasm assets/vendor/metamorphic-crypto/
 ```
 
+> **Supply-chain tip:** Instead of rebuilding from source, you can vendor the
+> exact artifacts from a signed [GitHub Release](https://github.com/moss-piglet/metamorphic-crypto/releases).
+> Each release ships `SHA512SUMS`, a CycloneDX `sbom.json`, and
+> [cosign](https://docs.sigstore.dev/cosign/overview/) signature bundles, so you
+> can verify what you vendor matches what was published:
+>
+> ```bash
+> cosign verify-blob \
+>   --bundle metamorphic_crypto_bg.wasm.cosign.bundle \
+>   metamorphic_crypto_bg.wasm
+> ```
+
 Then in `assets/js/app.js`, import and configure esbuild to serve the WASM:
 
 ```javascript
