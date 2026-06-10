@@ -64,7 +64,9 @@ defmodule MetamorphicCrypto.MixProject do
         CHANGELOG.md
         LICENSE
         .formatter.exs
-      ]
+      ],
+      # Maintainer-only release tooling; not useful to package consumers.
+      exclude_patterns: ["lib/mix/tasks/metamorphic_crypto.release.ex"]
     ]
   end
 

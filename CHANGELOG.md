@@ -8,6 +8,8 @@
 - Supply-chain hardening of the release pipeline: SHA-pinned actions,
   build-provenance attestation of each precompiled NIF, `cargo audit` gate,
   grouped Dependabot, and a `SECURITY.md`.
+- Packaging: exclude the maintainer-only release task from the published
+  package.
 
 ## v0.2.1 (2026-05-23)
 
