@@ -22,22 +22,26 @@ defmodule Mix.Tasks.MetamorphicCrypto.Release do
      to regenerate `#{"checksum-Elixir.MetamorphicCrypto.Native.exs"}` against
      those published assets.
   5. Stops so you can commit the regenerated checksum file.
-  6. After you re-run with `--publish`, runs `mix hex.publish`.
+  6. After you re-run with `--publish`, re-verifies the preconditions and prints
+     the `mix hex.publish` command for you to run (Hex publish is interactive
+     and uses your local `HEX_API_KEY`).
 
   ## Typical sequence
 
       # 1. bump @version in mix.exs, update CHANGELOG.md, commit
       # 2. git tag vX.Y.Z && git push origin main --tags
       # 3. wait for the "Build Precompiled NIFs" workflow to finish
-      $ mix metamorphic_crypto.release          # regenerates checksums
+      $ mix metamorphic_crypto.release           # regenerates checksums
       $ git add checksum-*.exs && git commit -m "Update NIF checksums for vX.Y.Z" && git push
-      $ mix metamorphic_crypto.release --publish # mix hex.publish
+      $ mix metamorphic_crypto.release --publish # verifies, then prints the publish command
 
   ## Options
 
-    * `--publish` — run `mix hex.publish` (step 6). Without it, the task stops
+    * `--publish` — verify all release preconditions and print the final
+      `mix hex.publish` command to run. Without it, the task stops
       after regenerating checksums so you can review and commit them.
-    * `--yes` — pass `--yes` through to `mix hex.publish` (non-interactive).
+    * `--yes` — include `--yes` in the printed `mix hex.publish` command
+      (skips Hex's confirmation prompt).
   """
 
   use Mix.Task
@@ -169,9 +173,20 @@ defmodule Mix.Tasks.MetamorphicCrypto.Release do
   end
 
   defp publish!(yes?) do
-    publish_args = if yes?, do: ["--yes"], else: []
+    # `hex.publish` is provided by the Hex archive and is interactive, so we run
+    # it directly rather than wrapping it (Mix.Task.run can't resolve archive
+    # tasks from within another task, and System.cmd breaks the prompts). We've
+    # already verified every precondition above, so this is the only step left.
+    publish_cmd = "mix hex.publish" <> if(yes?, do: " --yes", else: "")
 
-    Mix.shell().info("→ Publishing to Hex (mix hex.publish #{Enum.join(publish_args, " ")})...")
-    Mix.Task.run("hex.publish", publish_args)
+    Mix.shell().info("""
+
+    #{IO.ANSI.green()}✓ All preconditions verified.#{IO.ANSI.reset()}
+
+    Final step — run Hex publish yourself (it is interactive and uses your
+    local HEX_API_KEY):
+
+        #{publish_cmd}
+    """)
   end
 end
