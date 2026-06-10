@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Keep SHA-pinned GitHub Actions current. Dependabot bumps both the pinned
+  # commit SHA and the trailing version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Collapse all action bumps into a single weekly PR.
+      github-actions:
+        patterns:
+          - "*"
+
+  # Hex dependencies for the Elixir wrapper.
+  - package-ecosystem: mix
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      hex-minor:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Cargo dependencies for the native NIF crate.
+  - package-ecosystem: cargo
+    directory: /native/metamorphic_crypto_nif
+    schedule:
+      interval: weekly
+    groups:
+      cargo-minor:
+        update-types:
+          - "minor"
+          - "patch"
