@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.2 (2026-06-10)
+
+- No functional or API changes; encryption output is unchanged.
+- Sync the native crate dependency to `metamorphic-crypto` 0.3.7, deduping the
+  `sha3`/`keccak` tree for a cleaner SBOM.
+- Supply-chain hardening of the release pipeline: SHA-pinned actions,
+  build-provenance attestation of each precompiled NIF, `cargo audit` gate,
+  grouped Dependabot, and a `SECURITY.md`.
+
 ## v0.2.1 (2026-05-23)
 
 - Add `t:MetamorphicCrypto.Hybrid.security_level/0` type (`:cat3 | :cat5`)
