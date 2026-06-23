@@ -5,7 +5,8 @@
 //! the wire format used by the JavaScript/WASM client.
 
 use metamorphic_crypto::{
-    CryptoError, b64, box_seal, hybrid, kdf, keys, recovery, seal, secretbox,
+    CryptoError, b64, box_seal, hybrid, kdf, keys, recovery, seal, secretbox, sha3_256, sha3_512,
+    sha3_512_with_context, sha256, sha512,
 };
 use rustler::{Error, NifResult};
 
@@ -196,6 +197,44 @@ fn nif_parse_salt_from_key_hash(key_hash: &str) -> NifResult<String> {
     b64::parse_salt_from_key_hash(key_hash)
         .map(|s| s.to_string())
         .map_err(to_nif_error)
+}
+
+// ─── Hashing (SHA-3 / SHA-2) ─────────────────────────────────────────────────
+//
+// Public, infallible digests for *public* data (key fingerprints, safety
+// numbers, key-transparency-log entries). Base64 in, base64 out — byte-identical
+// to the crate's native and WASM outputs. Cheap, so plain scheduler (NOT
+// DirtyCpu — that is reserved for the Argon2 KDF). Do NOT hash secrets with
+// these; use the Argon2id KDF for secret material.
+
+#[rustler::nif]
+fn nif_sha3_512(data_b64: &str) -> NifResult<String> {
+    let data = b64::decode(data_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(&sha3_512(&data)))
+}
+
+#[rustler::nif]
+fn nif_sha3_256(data_b64: &str) -> NifResult<String> {
+    let data = b64::decode(data_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(&sha3_256(&data)))
+}
+
+#[rustler::nif]
+fn nif_sha256(data_b64: &str) -> NifResult<String> {
+    let data = b64::decode(data_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(&sha256(&data)))
+}
+
+#[rustler::nif]
+fn nif_sha512(data_b64: &str) -> NifResult<String> {
+    let data = b64::decode(data_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(&sha512(&data)))
+}
+
+#[rustler::nif]
+fn nif_sha3_512_with_context(context: &str, data_b64: &str) -> NifResult<String> {
+    let data = b64::decode(data_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(&sha3_512_with_context(context, &data)))
 }
 
 // ─── NIF Registration ────────────────────────────────────────────────────────

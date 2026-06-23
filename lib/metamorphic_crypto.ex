@@ -30,6 +30,7 @@ defmodule MetamorphicCrypto do
   - `MetamorphicCrypto.Seal` — unified seal/unseal (auto-detects format)
   - `MetamorphicCrypto.KDF` — Argon2id key derivation
   - `MetamorphicCrypto.Keys` — key generation and management
+  - `MetamorphicCrypto.Hash` — SHA3/SHA2 hashing for public data (fingerprints, safety numbers)
   - `MetamorphicCrypto.Recovery` — human-readable recovery keys
 
   ## Wire Format
@@ -39,7 +40,7 @@ defmodule MetamorphicCrypto do
   `metamorphic-crypto` WASM module used in browser clients.
   """
 
-  alias MetamorphicCrypto.{BoxSeal, Keys, SecretBox}
+  alias MetamorphicCrypto.{BoxSeal, Hash, Keys, SecretBox}
 
   # ─── Convenience API ──────────────────────────────────────────────────────
 
@@ -131,4 +132,40 @@ defmodule MetamorphicCrypto do
       when is_binary(ciphertext) and is_binary(public_key) and is_binary(private_key) do
     BoxSeal.open(ciphertext, public_key, private_key)
   end
+
+  @doc """
+  SHA3-512 of base64-encoded data (base64 digest out).
+
+  General-purpose digest for **public** data. For key fingerprints, safety
+  numbers, and key-transparency-log entries, prefer `sha3_512_with_context/2`.
+  See `MetamorphicCrypto.Hash` for the full menu and the "public data only"
+  security note.
+
+  ## Example
+
+      {:ok, digest} = MetamorphicCrypto.sha3_512(Base.encode64("abc"))
+
+  """
+  @spec sha3_512(data_b64 :: String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  defdelegate sha3_512(data_b64), to: Hash
+
+  @doc """
+  Domain-separated SHA3-512 — recommended for key fingerprints, safety numbers,
+  and key-transparency-log entries.
+
+  `context` is a versioned UTF-8 label (e.g. `"mosslet/key-fingerprint/v1"`);
+  `data_b64` is the base64-encoded payload. See `MetamorphicCrypto.Hash`.
+
+  ## Example
+
+      {:ok, fp} =
+        MetamorphicCrypto.sha3_512_with_context(
+          "mosslet/key-fingerprint/v1",
+          Base.encode64("public key bytes")
+        )
+
+  """
+  @spec sha3_512_with_context(context :: String.t(), data_b64 :: String.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  defdelegate sha3_512_with_context(context, data_b64), to: Hash
 end

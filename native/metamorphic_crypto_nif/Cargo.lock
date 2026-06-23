@@ -377,9 +377,9 @@ dependencies = [
 
 [[package]]
 name = "metamorphic-crypto"
-version = "0.3.7"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "921f9120b49580ff6317208d3f5debd81ca5d208fde76de2de67f0d182b15943"
+checksum = "789fd0cdaf4689f88d0e196bd03f09419474830753dcefbc9651969b496a26b8"
 dependencies = [
  "argon2",
  "base64",
@@ -389,6 +389,7 @@ dependencies = [
  "getrandom",
  "js-sys",
  "ml-kem",
+ "sha2",
  "sha3",
  "thiserror",
  "wasm-bindgen",
@@ -610,6 +611,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "digest 0.11.3",
 ]
 
 [[package]]

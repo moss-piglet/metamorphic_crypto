@@ -148,6 +148,38 @@ Human-readable backup keys (like Matrix or Signal recovery codes).
 mix metamorphic_crypto.gen.key
 ```
 
+### Hashing (SHA-3 / SHA-2)
+
+Public-data hashing for key fingerprints, safety numbers, and
+key-transparency-log entries — the same audited primitive used by the browser
+WASM build, so digests are byte-for-byte identical across native and browser.
+
+Base64 in, base64 out. Standardize on **SHA3-512**, and use the
+domain-separated variant (with a versioned context label) for anything
+identity-like:
+
+```elixir
+# General-purpose SHA3-512
+{:ok, digest} = MetamorphicCrypto.sha3_512(Base.encode64("public data"))
+
+# Recommended for fingerprints / safety numbers / log entries
+{:ok, fingerprint} =
+  MetamorphicCrypto.sha3_512_with_context(
+    "mosslet/key-fingerprint/v1",
+    Base.encode64("public key bytes")
+  )
+
+# Full menu lives in MetamorphicCrypto.Hash: sha3_512, sha3_256, sha256, sha512,
+# sha3_512_with_context (+ ! variants).
+```
+
+Want hex instead of base64? `digest |> Base.decode64!() |> Base.encode16(case: :lower)`.
+
+> **Public data only.** These digests are for data whose input and output are
+> both meant to be public. They intentionally add no zeroize/constant-time
+> ceremony. **Do not hash secrets** (passwords, private keys) with them — use
+> `MetamorphicCrypto.KDF.derive_session_key/2` (Argon2id) for secret material.
+
 ## Architecture Patterns
 
 ### When to Use This Library
@@ -269,6 +301,7 @@ encryption operations and post-quantum crypto, use MetamorphicCrypto.
 | `MetamorphicCrypto.Seal` | Unified seal/unseal with auto-detection |
 | `MetamorphicCrypto.KDF` | Argon2id key derivation |
 | `MetamorphicCrypto.Keys` | Key generation and private key management |
+| `MetamorphicCrypto.Hash` | SHA3/SHA2 hashing for public data (fingerprints, safety numbers) |
 | `MetamorphicCrypto.Recovery` | Human-readable recovery keys |
 
 ## Wire Format Compatibility
