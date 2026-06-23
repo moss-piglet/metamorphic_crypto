@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.0 (unreleased)
+
+- Add `MetamorphicCrypto.Hash` — SHA-3 / SHA-2 hashing for **public** data
+  (key fingerprints, safety numbers, key-transparency-log entries):
+  - `sha3_512/1` (recommended default, Cat-5), `sha3_256/1`, `sha256/1`,
+    `sha512/1`, and the domain-separated `sha3_512_with_context/2` — plus `!`
+    raising variants.
+  - Base64 in, base64 out, matching the rest of the package and the WASM wire
+    format, so a digest computed in Elixir is byte-for-byte identical to one
+    computed in the browser/native (verified by a locked parity vector).
+  - `MetamorphicCrypto.sha3_512/1` and `MetamorphicCrypto.sha3_512_with_context/2`
+    added to the top-level convenience facade.
+- These digests are for **public data only** and intentionally add no
+  zeroize/constant-time ceremony; do not hash secrets with them (use
+  `MetamorphicCrypto.KDF.derive_session_key/2` for secret material).
+- Sync the native crate dependency to
+  [`metamorphic-crypto` 0.4.0](https://crates.io/crates/metamorphic-crypto),
+  which exposes the public hashing API. No change to existing encryption
+  behavior or wire formats.
+
 ## v0.2.2 (2026-06-10)
 
 - No functional or API changes; encryption output is unchanged.

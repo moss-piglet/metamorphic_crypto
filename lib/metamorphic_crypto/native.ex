@@ -85,4 +85,13 @@ defmodule MetamorphicCrypto.Native do
 
   # Utility
   def nif_parse_salt_from_key_hash(_key_hash), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Hashing
+  def nif_sha3_512(_data_b64), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_sha3_256(_data_b64), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_sha256(_data_b64), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_sha512(_data_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_sha3_512_with_context(_context, _data_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

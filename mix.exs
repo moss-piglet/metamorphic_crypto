@@ -1,7 +1,7 @@
 defmodule MetamorphicCrypto.MixProject do
   use Mix.Project
 
-  @version "0.2.2"
+  @version "0.3.0"
   @repo_url "https://github.com/moss-piglet/metamorphic_crypto"
 
   def project do
@@ -84,6 +84,7 @@ defmodule MetamorphicCrypto.MixProject do
         "Post-Quantum Hybrid": [MetamorphicCrypto.Hybrid],
         "Unified Seal/Unseal": [MetamorphicCrypto.Seal],
         "Key Management": [MetamorphicCrypto.Keys, MetamorphicCrypto.KDF],
+        Hashing: [MetamorphicCrypto.Hash],
         Recovery: [MetamorphicCrypto.Recovery]
       ]
     ]
