@@ -39,6 +39,39 @@ defmodule MetamorphicCrypto.SealTest do
     end
   end
 
+  describe "seal_for_user/3 and unseal_from_user/4 — hybrid PQ Cat-1" do
+    test "roundtrip with Cat-1 PQ keys" do
+      {pk, sk} = Keys.generate_keypair()
+      {pq_pk, pq_sk} = Hybrid.generate_keypair(:cat1)
+      plaintext = "cat-1 post-quantum secret"
+
+      assert {:ok, ct} =
+               Seal.seal_for_user(plaintext, pk, pq_public_key: pq_pk, level: :cat1)
+
+      assert Hybrid.hybrid_ciphertext?(ct)
+      # Cat-1 ciphertexts carry the 0x01 version tag
+      assert <<0x01, _rest::binary>> = Base.decode64!(ct)
+      assert {:ok, ^plaintext} = Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
+    end
+
+    test "no PQ key falls back to legacy even with :cat1 level" do
+      {pk, sk} = Keys.generate_keypair()
+
+      {:ok, ct} = Seal.seal_for_user("x", pk, level: :cat1)
+      refute Hybrid.hybrid_ciphertext?(ct)
+      assert {:ok, "x"} = Seal.unseal_from_user(ct, pk, sk)
+    end
+
+    test "Cat-1 ciphertext cannot be unsealed with a Cat-5 PQ key" do
+      {pk, sk} = Keys.generate_keypair()
+      {pq_pk, _pq_sk} = Hybrid.generate_keypair(:cat1)
+      {_pq_pk5, pq_sk5} = Hybrid.generate_keypair(:cat5)
+
+      {:ok, ct} = Seal.seal_for_user("x", pk, pq_public_key: pq_pk, level: :cat1)
+      assert {:error, _reason} = Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk5)
+    end
+  end
+
   describe "seal_for_user/3 and unseal_from_user/4 — hybrid PQ Cat-5" do
     test "roundtrip with Cat-5 PQ keys" do
       {pk, sk} = Keys.generate_keypair()
@@ -84,6 +117,17 @@ defmodule MetamorphicCrypto.SealTest do
 
       # Unseal with PQ key available — should auto-detect legacy format
       assert {:ok, "old data"} = Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
+    end
+
+    test "Cat-1 ciphertext auto-detected by unseal" do
+      {pk, sk} = Keys.generate_keypair()
+      {pq_pk, pq_sk} = Hybrid.generate_keypair(:cat1)
+
+      {:ok, ct} = Seal.seal_for_user("cat1 data", pk, pq_public_key: pq_pk, level: :cat1)
+      assert Hybrid.hybrid_ciphertext?(ct)
+
+      # unseal_from_user auto-detects Cat-1 from the version tag
+      assert {:ok, "cat1 data"} = Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
     end
 
     test "Cat-5 ciphertext auto-detected by unseal" do

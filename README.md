@@ -6,7 +6,7 @@
 NaCl-compatible encryption for Elixir — server-side.
 
 Symmetric and public-key encryption, Argon2id key derivation,
-**ML-KEM-768/1024 + X25519 hybrid post-quantum encryption**, and human-readable
+**ML-KEM-512/768/1024 + X25519 hybrid post-quantum encryption**, and human-readable
 recovery keys — powered by Rust NIFs with precompiled binaries.
 
 ```elixir
@@ -72,8 +72,10 @@ Anonymous encryption to a recipient's public key. Only they can decrypt.
 
 ### Post-Quantum Hybrid Encryption
 
-Two security levels available. Cat-3 (ML-KEM-768, ~AES-192) is the default.
-Cat-5 (ML-KEM-1024, ~AES-256) is available for highest-security use cases.
+Three security levels available, spanning the full standardized ML-KEM range
+(NIST categories 1/3/5). Cat-3 (ML-KEM-768, ~AES-192) is the default. Cat-5
+(ML-KEM-1024, ~AES-256) is available for highest-security use cases, and Cat-1
+(ML-KEM-512, ~AES-128) for lightweight/constrained ones.
 
 ```elixir
 # Cat-3 (default) — ML-KEM-768 + X25519
@@ -81,6 +83,12 @@ Cat-5 (ML-KEM-1024, ~AES-256) is available for highest-security use cases.
 
 {:ok, ciphertext} = MetamorphicCrypto.Hybrid.seal("quantum-safe", pq_pk)
 {:ok, "quantum-safe"} = MetamorphicCrypto.Hybrid.open(ciphertext, pq_sk)
+
+# Cat-1 (opt-in) — ML-KEM-512 + X25519, lightest standardized tier
+{pq_pk_512, pq_sk_512} = MetamorphicCrypto.Hybrid.generate_keypair_512()
+
+{:ok, ciphertext} = MetamorphicCrypto.Hybrid.seal_512("quantum-safe", pq_pk_512)
+{:ok, "quantum-safe"} = MetamorphicCrypto.Hybrid.open(ciphertext, pq_sk_512)
 
 # Cat-5 (opt-in) — ML-KEM-1024 + X25519, highest security
 {pq_pk_1024, pq_sk_1024} = MetamorphicCrypto.Hybrid.generate_keypair_1024()
@@ -94,6 +102,7 @@ Cat-5 (ML-KEM-1024, ~AES-256) is available for highest-security use cases.
 | Version | Format                       | Security                  |
 | ------- | ---------------------------- | ------------------------- |
 | (none)  | Legacy X25519 sealed box     | Classical                 |
+| `0x01`  | ML-KEM-512 + X25519 (Cat-1)  | ~AES-128, NIST Category 1 |
 | `0x02`  | ML-KEM-768 + X25519 (Cat-3)  | ~AES-192, NIST Category 3 |
 | `0x03`  | ML-KEM-1024 + X25519 (Cat-5) | ~AES-256, NIST Category 5 |
 
@@ -314,7 +323,7 @@ MetamorphicCrypto and Cloak solve different problems:
 | --------------------- | ------------------------------ | ---------------------------------- |
 | **Purpose**           | Server-side encryption-at-rest | NaCl-compatible crypto primitives  |
 | **Who holds the key** | Server (env vars)              | Depends on your architecture       |
-| **Cipher**            | AES-256-GCM                    | XSalsa20-Poly1305, ML-KEM-768/1024 |
+| **Cipher**            | AES-256-GCM                    | XSalsa20-Poly1305, ML-KEM-512/768/1024 |
 | **Key rotation**      | Built-in                       | —                                  |
 | **Ecto types**        | Binary, Map, Integer, HMAC     | —                                  |
 | **Use for**           | PII at rest, blind indexes     | NaCl ops, enacl replacement, PQ    |
@@ -329,7 +338,7 @@ encryption operations and post-quantum crypto, use MetamorphicCrypto.
 | `MetamorphicCrypto`           | Top-level convenience API                                        |
 | `MetamorphicCrypto.SecretBox` | XSalsa20-Poly1305 symmetric encryption                           |
 | `MetamorphicCrypto.BoxSeal`   | X25519 anonymous sealed box                                      |
-| `MetamorphicCrypto.Hybrid`    | ML-KEM-768/1024 + X25519 post-quantum hybrid                     |
+| `MetamorphicCrypto.Hybrid`    | ML-KEM-512/768/1024 + X25519 post-quantum hybrid                     |
 | `MetamorphicCrypto.Seal`      | Unified seal/unseal with auto-detection                          |
 | `MetamorphicCrypto.KDF`       | Argon2id key derivation                                          |
 | `MetamorphicCrypto.Keys`      | Key generation and private key management                        |

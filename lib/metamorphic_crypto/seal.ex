@@ -15,6 +15,7 @@ defmodule MetamorphicCrypto.Seal do
 
   When sealing with a PQ key, pass `:level` to choose the NIST category:
 
+  - `:cat1` — ML-KEM-512 + X25519 (~AES-128).
   - `:cat3` — ML-KEM-768 + X25519 (~AES-192). Default.
   - `:cat5` — ML-KEM-1024 + X25519 (~AES-256).
 
@@ -30,6 +31,11 @@ defmodule MetamorphicCrypto.Seal do
       # Post-quantum hybrid Cat-3 (default)
       {pq_pk, pq_sk} = MetamorphicCrypto.Hybrid.generate_keypair()
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("data", pk, pq_public_key: pq_pk)
+      {:ok, "data"} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
+
+      # Post-quantum hybrid Cat-1 (lightest standardized tier)
+      {pq_pk, pq_sk} = MetamorphicCrypto.Hybrid.generate_keypair(:cat1)
+      {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("data", pk, pq_public_key: pq_pk, level: :cat1)
       {:ok, "data"} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
 
       # Post-quantum hybrid Cat-5 (highest security)
@@ -48,8 +54,8 @@ defmodule MetamorphicCrypto.Seal do
 
   - `:pq_public_key` — if provided, uses hybrid ML-KEM + X25519 encryption.
     Otherwise uses classical X25519 sealed box.
-  - `:level` — `t:MetamorphicCrypto.Hybrid.security_level/0`, either `:cat3`
-    (default) or `:cat5`. Only applies when `:pq_public_key` is present.
+  - `:level` — `t:MetamorphicCrypto.Hybrid.security_level/0`, one of `:cat1`,
+    `:cat3` (default), or `:cat5`. Only applies when `:pq_public_key` is present.
 
   ## Examples
 
@@ -58,6 +64,10 @@ defmodule MetamorphicCrypto.Seal do
 
       # Post-quantum Cat-3 (default)
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("secret", public_key, pq_public_key: pq_pk)
+
+      # Post-quantum Cat-1
+      {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("secret", public_key,
+        pq_public_key: pq_pk, level: :cat1)
 
       # Post-quantum Cat-5
       {:ok, ct} = MetamorphicCrypto.Seal.seal_for_user("secret", public_key,
@@ -91,6 +101,10 @@ defmodule MetamorphicCrypto.Seal do
       is_nil(pq_pk) or pq_pk == "" ->
         # No PQ key — fall back to classical X25519 sealed box
         BoxSeal.seal_raw(plaintext_b64, public_key_b64)
+
+      level == :cat1 ->
+        # Cat-1: use ML-KEM-512 NIF
+        Hybrid.seal_raw(plaintext_b64, pq_pk, :cat1)
 
       level == :cat5 ->
         # Cat-5: use ML-KEM-1024 NIF

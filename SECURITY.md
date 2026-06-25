@@ -34,7 +34,7 @@ reported there.
 
 - Cryptography delegated to the `metamorphic-crypto` crate (`#![forbid(unsafe_code)]`),
   built on the audited [RustCrypto](https://github.com/RustCrypto) project
-- ML-KEM-768/1024 post-quantum hybrid KEM (FIPS 203)
+- ML-KEM-512/768/1024 post-quantum hybrid KEM (FIPS 203)
 - Precompiled NIFs are distributed via GitHub Releases and verified at fetch
   time by `rustler_precompiled` against the committed `checksum-*.exs` (SHA-256)
 - Release artifacts carry GitHub build-provenance attestations

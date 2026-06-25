@@ -419,9 +419,9 @@ dependencies = [
 
 [[package]]
 name = "metamorphic-crypto"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffbfb55c478a8a2ac809f712fccf2f0ca86236eec79be3fc8cd7b7f90b278e7f"
+checksum = "745a6a9baa115369d8f7d583fa425c340040e7c25142ae60c2849aaa9be03d95"
 dependencies = [
  "argon2",
  "base64",

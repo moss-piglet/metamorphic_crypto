@@ -50,6 +50,12 @@ defmodule MetamorphicCrypto.Native do
       ),
       do: :erlang.nif_error(:nif_not_loaded)
 
+  # Hybrid (Cat-1: ML-KEM-512)
+  def nif_generate_hybrid_keypair_512, do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_hybrid_seal_512(_plaintext_b64, _combined_pk_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   # Hybrid (Cat-3: ML-KEM-768)
   def nif_generate_hybrid_keypair, do: :erlang.nif_error(:nif_not_loaded)
   def nif_hybrid_seal(_plaintext_b64, _combined_pk_b64), do: :erlang.nif_error(:nif_not_loaded)

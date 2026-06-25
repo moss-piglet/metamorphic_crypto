@@ -1,7 +1,7 @@
 defmodule MetamorphicCrypto.MixProject do
   use Mix.Project
 
-  @version "0.4.0"
+  @version "0.5.0"
   @repo_url "https://github.com/moss-piglet/metamorphic_crypto"
 
   def project do
@@ -27,7 +27,7 @@ defmodule MetamorphicCrypto.MixProject do
 
   defp description do
     """
-    NaCl-compatible encryption for Elixir with ML-KEM-768/1024 post-quantum support.
+    NaCl-compatible encryption for Elixir with ML-KEM-512/768/1024 post-quantum support.
     Precompiled Rust NIFs — no C compiler or system packages needed.
     """
   end
