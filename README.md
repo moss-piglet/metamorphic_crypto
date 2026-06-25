@@ -381,12 +381,12 @@ encryption operations and post-quantum crypto, use MetamorphicCrypto.
 | `MetamorphicCrypto`           | Top-level convenience API                                        |
 | `MetamorphicCrypto.SecretBox` | XSalsa20-Poly1305 symmetric encryption                           |
 | `MetamorphicCrypto.BoxSeal`   | X25519 anonymous sealed box                                      |
-| `MetamorphicCrypto.Hybrid`    | ML-KEM-512/768/1024 + X25519 post-quantum hybrid                     |
+| `MetamorphicCrypto.Hybrid`    | Post-quantum KEM/seal: ML-KEM-512/768/1024 + X25519 hybrid, plus the opt-in CNSA 2.0 suite axis (matched-strength hybrid · pure ML-KEM-1024) |
 | `MetamorphicCrypto.Seal`      | Unified seal/unseal with auto-detection                          |
 | `MetamorphicCrypto.KDF`       | Argon2id key derivation                                          |
 | `MetamorphicCrypto.Keys`      | Key generation and private key management                        |
 | `MetamorphicCrypto.Hash`      | SHA3/SHA2 hashing for public data (fingerprints, safety numbers) |
-| `MetamorphicCrypto.Sign`      | Hybrid ML-DSA + Ed25519 post-quantum signatures (strict-AND)     |
+| `MetamorphicCrypto.Sign`      | Post-quantum signatures: ML-DSA + Ed25519 (strict-AND), plus the opt-in CNSA 2.0 suite axis (matched-strength hybrid · pure ML-DSA-87) |
 | `MetamorphicCrypto.Recovery`  | Human-readable recovery keys                                     |
 
 ## Wire Format Compatibility
