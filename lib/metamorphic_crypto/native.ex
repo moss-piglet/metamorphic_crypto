@@ -42,6 +42,15 @@ defmodule MetamorphicCrypto.Native do
   def nif_seal_for_user(_plaintext_b64, _public_key_b64, _pq_public_key_b64),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def nif_seal_for_user_with_suite(
+        _plaintext_b64,
+        _public_key_b64,
+        _pq_public_key_b64,
+        _suite,
+        _level
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
+
   def nif_unseal_from_user(
         _ciphertext_b64,
         _public_key_b64,
@@ -66,6 +75,25 @@ defmodule MetamorphicCrypto.Native do
   def nif_generate_hybrid_keypair_1024, do: :erlang.nif_error(:nif_not_loaded)
 
   def nif_hybrid_seal_1024(_plaintext_b64, _combined_pk_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  # CNSA 2.0 Suite axis (KEM / seal)
+  def nif_generate_hybrid_keypair_suite(_suite, _level),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_hybrid_seal_suite(_plaintext_b64, _combined_pk_b64, _suite, _level),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_hybrid_seal_suite_with_context(
+        _plaintext_b64,
+        _combined_pk_b64,
+        _suite,
+        _level,
+        _context_label
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_hybrid_open_with_context(_ciphertext_b64, _seed_b64, _context_label),
     do: :erlang.nif_error(:nif_not_loaded)
 
   # Keys
@@ -103,6 +131,10 @@ defmodule MetamorphicCrypto.Native do
 
   # Hybrid PQ Signatures (ML-DSA + Ed25519)
   def nif_generate_signing_keypair(_level), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_generate_signing_keypair_suite(_suite, _level),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def nif_derive_signing_public_key(_secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
   def nif_sign(_message, _context, _secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
 

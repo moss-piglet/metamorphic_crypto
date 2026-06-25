@@ -5,8 +5,8 @@
 //! the wire format used by the JavaScript/WASM client.
 
 use metamorphic_crypto::{
-    CryptoError, SignatureLevel, b64, box_seal, hybrid, kdf, keys, recovery, seal, secretbox,
-    sha3_256, sha3_512, sha3_512_with_context, sha256, sha512, sign,
+    CryptoError, SecurityLevel, SignatureLevel, Suite, b64, box_seal, hybrid, kdf, keys, recovery,
+    seal, secretbox, sha3_256, sha3_512, sha3_512_with_context, sha256, sha512, sign,
 };
 use rustler::{Binary, Error, NifResult};
 
@@ -14,6 +14,30 @@ use rustler::{Binary, Error, NifResult};
 
 fn to_nif_error(e: CryptoError) -> Error {
     Error::Term(Box::new(e.to_string()))
+}
+
+/// Parse the CNSA 2.0 `Suite` axis from the lowercase atom name passed by
+/// Elixir (`"hybrid"` / `"hybrid_matched"` / `"pure_cnsa2"`).
+fn suite_from_str(suite: &str) -> NifResult<Suite> {
+    match suite {
+        "hybrid" => Ok(Suite::Hybrid),
+        "hybrid_matched" => Ok(Suite::HybridMatched),
+        "pure_cnsa2" => Ok(Suite::PureCnsa2),
+        _ => Err(Error::Term(Box::new(format!("unknown suite: {suite}")))),
+    }
+}
+
+/// Parse the KEM/seal `SecurityLevel` from the lowercase atom name passed by
+/// Elixir (`"cat1"` / `"cat3"` / `"cat5"`).
+fn security_level_from_str(level: &str) -> NifResult<SecurityLevel> {
+    match level {
+        "cat1" => Ok(SecurityLevel::Cat1),
+        "cat3" => Ok(SecurityLevel::Cat3),
+        "cat5" => Ok(SecurityLevel::Cat5),
+        _ => Err(Error::Term(Box::new(format!(
+            "unknown security level: {level}"
+        )))),
+    }
 }
 
 // ─── Key Derivation ──────────────────────────────────────────────────────────
@@ -92,7 +116,26 @@ fn nif_unseal_from_user(
     .map_err(to_nif_error)
 }
 
-// ─── Hybrid PQ KEM (Cat-1: ML-KEM-512) ───────────────────────────────────────
+#[rustler::nif]
+fn nif_seal_for_user_with_suite(
+    plaintext_b64: &str,
+    public_key_b64: &str,
+    pq_public_key_b64: Option<String>,
+    suite: &str,
+    level: &str,
+) -> NifResult<String> {
+    let pt = b64::decode(plaintext_b64).map_err(to_nif_error)?;
+    let suite = suite_from_str(suite)?;
+    let level = security_level_from_str(level)?;
+    seal::seal_for_user_with_suite(
+        &pt,
+        public_key_b64,
+        pq_public_key_b64.as_deref(),
+        suite,
+        level,
+    )
+    .map_err(to_nif_error)
+}
 
 #[rustler::nif]
 fn nif_generate_hybrid_keypair_512() -> (String, String) {
@@ -143,6 +186,63 @@ fn nif_generate_hybrid_keypair_1024() -> (String, String) {
 fn nif_hybrid_seal_1024(plaintext_b64: &str, combined_pk_b64: &str) -> NifResult<String> {
     let pt = b64::decode(plaintext_b64).map_err(to_nif_error)?;
     hybrid::hybrid_seal_1024(&pt, combined_pk_b64).map_err(to_nif_error)
+}
+
+// ─── CNSA 2.0 Suite axis (KEM / seal) ────────────────────────────────────────
+//
+// Orthogonal `Suite` axis added in core v0.7.0: `Suite::Hybrid` (default,
+// unchanged bytes), `Suite::HybridMatched` (classical partner matched to the PQ
+// category — Cat-3 → X448, Cat-5 → P-521 ECDH), and `Suite::PureCnsa2` (pure
+// ML-KEM-1024 + AES-256-GCM, Cat-5 only). The suite is passed as a lowercase
+// atom name; the level mirrors the existing "cat1"/"cat3"/"cat5" parsing. The
+// new suites bind a versioned context label into the HKDF-SHA512 `info` + GCM
+// AAD; `hybrid_open` auto-detects suite + level from the version tag.
+
+#[rustler::nif]
+fn nif_generate_hybrid_keypair_suite(suite: &str, level: &str) -> NifResult<(String, String)> {
+    let suite = suite_from_str(suite)?;
+    let level = security_level_from_str(level)?;
+    let kp = hybrid::generate_hybrid_keypair_suite(suite, level).map_err(to_nif_error)?;
+    Ok((kp.public_key, kp.secret_key))
+}
+
+#[rustler::nif]
+fn nif_hybrid_seal_suite(
+    plaintext_b64: &str,
+    combined_pk_b64: &str,
+    suite: &str,
+    level: &str,
+) -> NifResult<String> {
+    let pt = b64::decode(plaintext_b64).map_err(to_nif_error)?;
+    let suite = suite_from_str(suite)?;
+    let level = security_level_from_str(level)?;
+    hybrid::hybrid_seal_suite(&pt, combined_pk_b64, suite, level).map_err(to_nif_error)
+}
+
+#[rustler::nif]
+fn nif_hybrid_seal_suite_with_context(
+    plaintext_b64: &str,
+    combined_pk_b64: &str,
+    suite: &str,
+    level: &str,
+    context_label: &str,
+) -> NifResult<String> {
+    let pt = b64::decode(plaintext_b64).map_err(to_nif_error)?;
+    let suite = suite_from_str(suite)?;
+    let level = security_level_from_str(level)?;
+    hybrid::hybrid_seal_suite_with_context(&pt, combined_pk_b64, suite, level, context_label)
+        .map_err(to_nif_error)
+}
+
+#[rustler::nif]
+fn nif_hybrid_open_with_context(
+    ciphertext_b64: &str,
+    seed_b64: &str,
+    context_label: &str,
+) -> NifResult<String> {
+    let pt = hybrid::hybrid_open_with_context(ciphertext_b64, seed_b64, context_label)
+        .map_err(to_nif_error)?;
+    Ok(b64::encode(&pt))
 }
 
 // ─── Key Generation ──────────────────────────────────────────────────────────
@@ -279,6 +379,19 @@ fn signature_level_from_str(level: &str) -> NifResult<SignatureLevel> {
 fn nif_generate_signing_keypair(level: &str) -> NifResult<(String, String)> {
     let level = signature_level_from_str(level)?;
     let kp = sign::generate_signing_keypair_with_level(level);
+    Ok((kp.public_key.clone(), kp.secret_key.clone()))
+}
+
+// CNSA 2.0 Suite axis (signatures). `sign` / `verify` / `derive_public_key`
+// auto-detect the suite from the version tag, so only keypair generation needs
+// a suite-aware binding. `Suite::PureCnsa2` is ML-DSA-87 (Cat-5) only;
+// `Suite::HybridMatched` pairs ML-DSA with a category-matched classical curve
+// (Cat-3 → Ed448, Cat-5 → ECDSA-P-521 hedged).
+#[rustler::nif]
+fn nif_generate_signing_keypair_suite(suite: &str, level: &str) -> NifResult<(String, String)> {
+    let suite = suite_from_str(suite)?;
+    let level = signature_level_from_str(level)?;
+    let kp = sign::generate_signing_keypair_suite(suite, level).map_err(to_nif_error)?;
     Ok((kp.public_key.clone(), kp.secret_key.clone()))
 }
 

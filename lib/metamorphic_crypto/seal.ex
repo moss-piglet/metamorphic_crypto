@@ -56,6 +56,12 @@ defmodule MetamorphicCrypto.Seal do
     Otherwise uses classical X25519 sealed box.
   - `:level` — `t:MetamorphicCrypto.Hybrid.security_level/0`, one of `:cat1`,
     `:cat3` (default), or `:cat5`. Only applies when `:pq_public_key` is present.
+  - `:suite` — `t:MetamorphicCrypto.Hybrid.suite/0`, one of `:hybrid` (default),
+    `:hybrid_matched`, or `:pure_cnsa2`. With a non-default suite the result
+    carries a new CNSA 2.0 wire tag and **must** be opened with
+    `MetamorphicCrypto.Hybrid.open/2,3` (not `unseal_from_user/4`, which only
+    auto-detects the legacy `:hybrid` tags). `:pure_cnsa2` requires
+    `level: :cat5`.
 
   ## Examples
 
@@ -97,27 +103,40 @@ defmodule MetamorphicCrypto.Seal do
     pq_pk = Keyword.get(opts, :pq_public_key)
     level = Keyword.get(opts, :level, :cat3)
 
-    cond do
-      is_nil(pq_pk) or pq_pk == "" ->
-        # No PQ key — fall back to classical X25519 sealed box
-        BoxSeal.seal_raw(plaintext_b64, public_key_b64)
-
-      level == :cat1 ->
-        # Cat-1: use ML-KEM-512 NIF
-        Hybrid.seal_raw(plaintext_b64, pq_pk, :cat1)
-
-      level == :cat5 ->
-        # Cat-5: use ML-KEM-1024 NIF
-        Hybrid.seal_raw(plaintext_b64, pq_pk, :cat5)
-
-      true ->
-        # Cat-3 (default): use the existing unified seal NIF
-        case Native.nif_seal_for_user(plaintext_b64, public_key_b64, pq_pk) do
-          {:error, reason} -> {:error, reason}
-          ct -> {:ok, ct}
-        end
+    case Keyword.get(opts, :suite, :hybrid) do
+      :hybrid -> seal_hybrid(plaintext_b64, public_key_b64, pq_pk, level)
+      suite -> seal_with_suite(plaintext_b64, public_key_b64, pq_pk, suite, level)
     end
   end
+
+  # Default `:hybrid` suite: classical fallback when no PQ key, otherwise the
+  # level-specific ML-KEM + X25519 path (byte-identical to prior behavior).
+  defp seal_hybrid(plaintext_b64, public_key_b64, pq_pk, level) do
+    cond do
+      is_nil(pq_pk) or pq_pk == "" -> BoxSeal.seal_raw(plaintext_b64, public_key_b64)
+      level == :cat1 -> Hybrid.seal_raw(plaintext_b64, pq_pk, :cat1)
+      level == :cat5 -> Hybrid.seal_raw(plaintext_b64, pq_pk, :cat5)
+      true -> wrap_native(Native.nif_seal_for_user(plaintext_b64, public_key_b64, pq_pk))
+    end
+  end
+
+  # CNSA 2.0 suite axis (HybridMatched / PureCnsa2). The resulting ciphertext
+  # carries a new wire tag (0x10/0x13/0x14) and must be opened with
+  # `MetamorphicCrypto.Hybrid.open/2` (default label) or `open/3` (custom
+  # label) — `unseal_from_user/4` only auto-detects the legacy `:hybrid` tags.
+  defp seal_with_suite(plaintext_b64, public_key_b64, pq_pk, suite, level) do
+    Native.nif_seal_for_user_with_suite(
+      plaintext_b64,
+      public_key_b64,
+      pq_pk,
+      Atom.to_string(suite),
+      Atom.to_string(level)
+    )
+    |> wrap_native()
+  end
+
+  defp wrap_native({:error, reason}), do: {:error, reason}
+  defp wrap_native(ct) when is_binary(ct), do: {:ok, ct}
 
   @doc """
   Unseal ciphertext using the user's key(s). Auto-detects format.

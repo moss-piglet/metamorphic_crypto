@@ -113,6 +113,24 @@ defmodule MetamorphicCrypto.Sign do
   @type level :: :cat2 | :cat3 | :cat5
 
   @typedoc """
+  CNSA 2.0 **suite** axis for signatures (orthogonal to `t:level/0`).
+
+  - `:hybrid` — **default & recommended.** Existing ML-DSA + Ed25519 strict-AND
+    composite, byte-for-byte unchanged (tags `0x01`/`0x02`/`0x03`).
+  - `:hybrid_matched` — opt-in. The classical partner is matched to the PQ
+    category: Cat-2 → Ed25519 (identical to `:hybrid`), Cat-3 → Ed448 (tag
+    `0x13`), Cat-5 → ECDSA-P-521 hedged (tag `0x14`).
+  - `:pure_cnsa2` — opt-in, **Cat-5 only.** Pure ML-DSA-87, no classical half —
+    the NSA CNSA 2.0 signature box (tag `0x10`). Standards-compliant but without
+    the classical backstop the default `:hybrid` keeps until the lattice
+    implementation is independently audited.
+
+  `sign/3`, `verify/4`, and `derive_public_key/1` auto-detect the suite from the
+  wire tag, so only keypair generation takes a `suite` argument.
+  """
+  @type suite :: :hybrid | :hybrid_matched | :pure_cnsa2
+
+  @typedoc """
   A hybrid ML-DSA + Ed25519 signing keypair, both fields base64-encoded.
   """
   @type keypair :: %{public_key: String.t(), secret_key: String.t()}
@@ -153,6 +171,39 @@ defmodule MetamorphicCrypto.Sign do
   def generate_signing_keypair(level \\ :cat3) when level in [:cat2, :cat3, :cat5] do
     {public_key, secret_key} = Native.nif_generate_signing_keypair(Atom.to_string(level))
     %{public_key: public_key, secret_key: secret_key}
+  end
+
+  @doc """
+  Generate a hybrid signing keypair for the given `t:suite/0` + `t:level/0`
+  (default `:cat5`).
+
+  `:hybrid` (any level) and `:hybrid_matched` at `:cat2` produce the existing
+  ML-DSA + Ed25519 keys (byte-identical to `generate_signing_keypair/1`). The
+  matched Cat-3/Cat-5 and pure suites produce the new combined-key layouts.
+  `sign/3` / `verify/4` / `derive_public_key/1` need no suite argument — they
+  read it from the wire tag.
+
+  Returns `{:ok, %{public_key: base64, secret_key: base64}}`, or
+  `{:error, reason}` for unsupported combinations (e.g. `:pure_cnsa2` below
+  `:cat5`).
+
+  ## Examples
+
+      # Pure CNSA 2.0 (ML-DSA-87, Cat-5 only)
+      {:ok, kp} = MetamorphicCrypto.Sign.generate_signing_keypair_suite(:pure_cnsa2, :cat5)
+
+      # Matched-strength hybrid (ML-DSA-65 + Ed448)
+      {:ok, kp} = MetamorphicCrypto.Sign.generate_signing_keypair_suite(:hybrid_matched, :cat3)
+
+  """
+  @spec generate_signing_keypair_suite(suite(), level()) ::
+          {:ok, keypair()} | {:error, String.t()}
+  def generate_signing_keypair_suite(suite, level \\ :cat5)
+      when suite in [:hybrid, :hybrid_matched, :pure_cnsa2] and level in [:cat2, :cat3, :cat5] do
+    case Native.nif_generate_signing_keypair_suite(nif_suite(suite), Atom.to_string(level)) do
+      {:error, reason} -> {:error, reason}
+      {public_key, secret_key} -> {:ok, %{public_key: public_key, secret_key: secret_key}}
+    end
   end
 
   @doc """
@@ -258,6 +309,10 @@ defmodule MetamorphicCrypto.Sign do
   end
 
   # ─── Internal ──────────────────────────────────────────────────────────────
+
+  defp nif_suite(:hybrid), do: "hybrid"
+  defp nif_suite(:hybrid_matched), do: "hybrid_matched"
+  defp nif_suite(:pure_cnsa2), do: "pure_cnsa2"
 
   defp wrap({:error, reason}), do: {:error, reason}
   defp wrap(value) when is_binary(value), do: {:ok, value}

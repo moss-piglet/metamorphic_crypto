@@ -109,6 +109,49 @@ Three security levels available, spanning the full standardized ML-KEM range
 This means you can upgrade security levels progressively — existing ciphertext
 always decrypts correctly regardless of which level it was sealed at.
 
+### CNSA 2.0 Suite Axis (opt-in)
+
+The `suite` axis is **orthogonal** to the security level: `level` picks the
+ML-* parameter set, `suite` picks the *composition posture*. `:hybrid` (the
+existing ML-KEM + X25519 / ML-DSA + Ed25519 strict-AND construction) stays the
+default and is byte-for-byte unchanged. Two opt-in suites are available:
+
+- `:hybrid_matched` — the classical partner is matched to the PQ category so it
+  is never the weak link (KEM: Cat-3 → X448, Cat-5 → P-521 ECDH; signatures:
+  Cat-3 → Ed448, Cat-5 → hedged ECDSA-P-521).
+- `:pure_cnsa2` — pure post-quantum, **Cat-5 only** (ML-KEM-1024 + AES-256-GCM,
+  or ML-DSA-87), no classical half — the NSA CNSA 2.0 box.
+
+```elixir
+# Pure CNSA 2.0 KEM/seal (ML-KEM-1024 + AES-256-GCM)
+{:ok, {pk, sk}} = MetamorphicCrypto.Hybrid.generate_keypair_suite(:pure_cnsa2, :cat5)
+{:ok, ct} = MetamorphicCrypto.Hybrid.seal_suite("top secret", pk, :pure_cnsa2, :cat5)
+{:ok, "top secret"} = MetamorphicCrypto.Hybrid.open(ct, sk)
+
+# Per-tenant context label (bound into HKDF info + GCM AAD)
+{:ok, ct} =
+  MetamorphicCrypto.Hybrid.seal_suite("secret", pk, :pure_cnsa2, :cat5,
+    context_label: "mosslet/seal/v1")
+{:ok, "secret"} = MetamorphicCrypto.Hybrid.open(ct, sk, "mosslet/seal/v1")
+
+# Pure CNSA 2.0 signatures (ML-DSA-87) — sign/verify auto-detect the suite
+{:ok, kp} = MetamorphicCrypto.Sign.generate_signing_keypair_suite(:pure_cnsa2, :cat5)
+{:ok, sig} = MetamorphicCrypto.Sign.sign("checkpoint", "metamorphic/sign/v1", kp.secret_key)
+true = MetamorphicCrypto.Sign.verify("checkpoint", "metamorphic/sign/v1", sig, kp.public_key)
+```
+
+New wire tags: `0x10` PureCnsa2 (Cat-5), `0x13` HybridMatched Cat-3, `0x14`
+HybridMatched Cat-5. The matched Cat-1 rung reuses the existing `0x01` X25519
+construction. `Hybrid.open/2` auto-detects every tag; pass an explicit label to
+`open/3` only when you sealed with a non-default `:context_label`.
+
+> **Honest posture:** CNSA 2.0 algorithm suite, NCC-audited primitives,
+> pure-Rust and memory-safe (`#![forbid(unsafe_code)]` at our layer) — **not**
+> "FIPS 140-3 validated." `:hybrid` stays the recommended default: its
+> strict-AND classical backstop guards against a lattice-implementation flaw
+> until those implementations are independently audited. `:pure_cnsa2` is
+> standards-compliant but drops that backstop.
+
 ### Unified Seal/Unseal (Auto-Detecting)
 
 Automatically uses PQ when available, falls back to classical. Detects format
