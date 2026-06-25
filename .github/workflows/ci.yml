@@ -22,6 +22,8 @@ jobs:
           - { elixir: "1.16", otp: "26" }
           - { elixir: "1.17", otp: "27" }
           - { elixir: "1.18", otp: "28" }
+          - { elixir: "1.19", otp: "28" }
+          - { elixir: "1.20", otp: "29" }
 
     steps:
       # Actions pinned to commit SHA; @stable on rust-toolchain intentionally
@@ -59,7 +61,7 @@ jobs:
 
       - name: Check formatting
         run: mix format --check-formatted
-        if: matrix.elixir == '1.18'
+        if: matrix.elixir == '1.20'
 
   rust_checks:
     name: Rust lint & test
