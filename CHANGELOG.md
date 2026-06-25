@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.6.0 (2026-06-25)
+
+Surfaces the **CNSA 2.0 suite axis** added in
+[`metamorphic-crypto` 0.7.0](https://crates.io/crates/metamorphic-crypto). The
+`Suite` axis is **orthogonal** to the existing security/signature level — pick
+the ML-* parameter set with `level`, pick the *composition posture* with
+`suite` — and is fully additive: existing keys, ciphertexts, signatures, and
+wire formats are byte-for-byte unchanged, and `:hybrid` stays the default.
+
+- `MetamorphicCrypto.Hybrid` (KEM / seal) gains the suite axis:
+  - `generate_keypair_suite/2` — `{:ok, {pk, sk}}` for `(suite, level)`;
+    `{:error, _}` for unsupported combinations (e.g. `:pure_cnsa2` below
+    `:cat5`).
+  - `seal_suite/5` and `seal_suite_raw/5` — seal under a `(suite, level)` with an
+    optional `:context_label` (default `seal_context_v1/0`,
+    `"metamorphic/seal/v1"`) bound into the HKDF-SHA512 `info` and AES-256-GCM
+    AAD.
+  - `open/3` and `open_raw/3` — open a new-suite ciphertext with an explicit
+    context label. `open/2` still auto-detects the suite + level from the version
+    tag and opens new suites under the default label.
+  - New wire tags: `0x10` PureCnsa2 Cat-5 (ML-KEM-1024 + AES-256-GCM), `0x13`
+    HybridMatched Cat-3 (ML-KEM-768 + X448), `0x14` HybridMatched Cat-5
+    (ML-KEM-1024 + P-521 ECDH). HybridMatched Cat-1 reuses the existing `0x01`
+    X25519 construction (no new format).
+- `MetamorphicCrypto.Seal.seal_for_user/3` (and `seal_for_user_raw/3`) accept a
+  `:suite` option. Non-default suites carry a new wire tag and must be opened
+  with `MetamorphicCrypto.Hybrid.open/2,3` — `unseal_from_user/4` only
+  auto-detects the legacy `:hybrid` tags.
+- `MetamorphicCrypto.Sign` gains `generate_signing_keypair_suite/2`
+  (`{:ok, keypair}` | `{:error, _}`) for the signature suites: `:pure_cnsa2`
+  (ML-DSA-87, Cat-5; tag `0x10`) and `:hybrid_matched` (Cat-3 → Ed448 `0x13`,
+  Cat-5 → hedged ECDSA-P-521 `0x14`). `sign/3`, `verify/4`, and
+  `derive_public_key/1` are unchanged — they auto-detect the suite from the wire
+  tag.
+- Cross-language parity: new tests pin the deterministic signature public keys
+  (SHA3-512 digests) to the exact vectors in the Rust core
+  (`tests/cnsa2_vectors.rs`), and assert the documented FIPS-determined artifact
+  sizes, so the NIF stays byte-identical to native Rust and WASM.
+- Honesty posture (per project policy): "CNSA 2.0 algorithm suite, NCC-audited
+  primitives, pure-Rust and memory-safe (`#![forbid(unsafe_code)]` at our
+  layer)" — **not** "FIPS 140-3 validated." `:hybrid` remains the default and
+  recommended posture: its strict-AND classical backstop guards against a
+  lattice-implementation flaw until those implementations are independently
+  audited. `:pure_cnsa2` is standards-compliant but drops that backstop.
+- Sync the native crate dependency to `metamorphic-crypto` 0.7.
+
 ## v0.5.0 (2026-06-25)
 
 - `MetamorphicCrypto.Hybrid` now surfaces the **Cat-1 (ML-KEM-512 + X25519)**
