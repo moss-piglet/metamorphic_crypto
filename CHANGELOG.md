@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.4.0 (unreleased)
+
+- Add `MetamorphicCrypto.Sign` — hybrid post-quantum signatures combining
+  **ML-DSA (FIPS 204) + Ed25519** in a composite, strict-AND verified scheme:
+  - `generate_signing_keypair/0` (default `:cat3`) and
+    `generate_signing_keypair/1` (`:cat2` / `:cat3` / `:cat5`) returning
+    `%{public_key, secret_key}` (base64 strings).
+  - `sign/3` (raw message binary + UTF-8 `context` + base64 secret key →
+    base64 signature) and `verify/4` (→ boolean, both components must verify).
+  - `derive_public_key/1` deterministically re-derives the base64 verifying key
+    from a secret key — so a key recovered from backup regenerates
+    **byte-identically** (no false key-change alert for TOFU-pinned keys).
+  - `sign_context_v1/0` exposes the recommended `"metamorphic/sign/v1"` context
+    label; plus `derive_public_key!/1` and `sign!/3` raising variants.
+  - Convenience facade: `MetamorphicCrypto.generate_signing_keypair/0,1`,
+    `sign/3`, `verify/4`, and `derive_public_key/1`.
+- ML-DSA uses the **hedged (randomized)** FIPS 204 variant, so signature bytes
+  are non-reproducible (both-valid); the wire format — version tags, byte
+  layout, domain-separation framing
+  (`I2OSP(len(context), 8) || context || message`), and public-key derivation —
+  is fully deterministic and pinnable across native Rust, WASM, and this NIF.
+- Sync the native crate dependency to
+  [`metamorphic-crypto` 0.5.0](https://crates.io/crates/metamorphic-crypto),
+  which exposes the composite signature API. No change to existing encryption,
+  hashing, or wire formats.
+
 ## v0.3.0 (unreleased)
 
 - Add `MetamorphicCrypto.Hash` — SHA-3 / SHA-2 hashing for **public** data

@@ -91,10 +91,10 @@ Cat-5 (ML-KEM-1024, ~AES-256) is available for highest-security use cases.
 
 `open/2` auto-detects the ciphertext format from the version tag byte:
 
-| Version | Format | Security |
-|---------|--------|----------|
-| (none)  | Legacy X25519 sealed box | Classical |
-| `0x02`  | ML-KEM-768 + X25519 (Cat-3) | ~AES-192, NIST Category 3 |
+| Version | Format                       | Security                  |
+| ------- | ---------------------------- | ------------------------- |
+| (none)  | Legacy X25519 sealed box     | Classical                 |
+| `0x02`  | ML-KEM-768 + X25519 (Cat-3)  | ~AES-192, NIST Category 3 |
 | `0x03`  | ML-KEM-1024 + X25519 (Cat-5) | ~AES-256, NIST Category 5 |
 
 This means you can upgrade security levels progressively — existing ciphertext
@@ -179,6 +179,38 @@ Want hex instead of base64? `digest |> Base.decode64!() |> Base.encode16(case: :
 > both meant to be public. They intentionally add no zeroize/constant-time
 > ceremony. **Do not hash secrets** (passwords, private keys) with them — use
 > `MetamorphicCrypto.KDF.derive_session_key/2` (Argon2id) for secret material.
+
+### Signatures (hybrid ML-DSA + Ed25519)
+
+Hybrid post-quantum signatures for transparency logs and key-transparency work
+— every artifact is signed by **both** ML-DSA (FIPS 204) and Ed25519, and
+verification requires **both** (strict AND), so an attacker must break a lattice
+_and_ an elliptic-curve scheme to forge. Keys and signatures are base64; the
+message is a raw binary and the context a UTF-8 label.
+
+```elixir
+# Cat-3 (ML-DSA-65 + Ed25519) is the default; :cat2 and :cat5 also available
+kp = MetamorphicCrypto.generate_signing_keypair()
+
+{:ok, sig} =
+  MetamorphicCrypto.sign("log entry", MetamorphicCrypto.Sign.sign_context_v1(), kp.secret_key)
+
+true = MetamorphicCrypto.verify("log entry", "metamorphic/sign/v1", sig, kp.public_key)
+
+# Re-derive the verifying key from a (recovered) secret — byte-identical
+{:ok, pk} = MetamorphicCrypto.derive_public_key(kp.secret_key)
+```
+
+ML-DSA uses the hedged/randomized FIPS 204 mode, so **signature bytes are
+non-reproducible** (both verify). The wire format — version tags, byte layout,
+and the `I2OSP(len(ctx), 8) || ctx || msg` domain separation — is deterministic,
+so `derive_public_key/1` reproduces a verifying key byte-identically across
+native, WASM, and this NIF (this is what keeps a TOFU-pinned key stable through
+account recovery). Full menu in `MetamorphicCrypto.Sign`.
+
+> **Keep the `secret_key` sensitive.** It is a 65-byte base64 blob. The native
+> core zeroizes seed material on drop, but the Elixir base64 string is a regular
+> binary — store it encrypted at rest and avoid logging it.
 
 ## Architecture Patterns
 
@@ -278,31 +310,32 @@ from the same Rust core).
 
 MetamorphicCrypto and Cloak solve different problems:
 
-| | Cloak | MetamorphicCrypto |
-|--|-------|-------------------|
-| **Purpose** | Server-side encryption-at-rest | NaCl-compatible crypto primitives |
-| **Who holds the key** | Server (env vars) | Depends on your architecture |
-| **Cipher** | AES-256-GCM | XSalsa20-Poly1305, ML-KEM-768/1024 |
-| **Key rotation** | Built-in | — |
-| **Ecto types** | Binary, Map, Integer, HMAC | — |
-| **Use for** | PII at rest, blind indexes | NaCl ops, enacl replacement, PQ |
+|                       | Cloak                          | MetamorphicCrypto                  |
+| --------------------- | ------------------------------ | ---------------------------------- |
+| **Purpose**           | Server-side encryption-at-rest | NaCl-compatible crypto primitives  |
+| **Who holds the key** | Server (env vars)              | Depends on your architecture       |
+| **Cipher**            | AES-256-GCM                    | XSalsa20-Poly1305, ML-KEM-768/1024 |
+| **Key rotation**      | Built-in                       | —                                  |
+| **Ecto types**        | Binary, Map, Integer, HMAC     | —                                  |
+| **Use for**           | PII at rest, blind indexes     | NaCl ops, enacl replacement, PQ    |
 
 For encrypted Ecto fields and blind indexes, use Cloak. For NaCl-compatible
 encryption operations and post-quantum crypto, use MetamorphicCrypto.
 
 ## Modules
 
-| Module | Purpose |
-|--------|---------|
-| `MetamorphicCrypto` | Top-level convenience API |
-| `MetamorphicCrypto.SecretBox` | XSalsa20-Poly1305 symmetric encryption |
-| `MetamorphicCrypto.BoxSeal` | X25519 anonymous sealed box |
-| `MetamorphicCrypto.Hybrid` | ML-KEM-768/1024 + X25519 post-quantum hybrid |
-| `MetamorphicCrypto.Seal` | Unified seal/unseal with auto-detection |
-| `MetamorphicCrypto.KDF` | Argon2id key derivation |
-| `MetamorphicCrypto.Keys` | Key generation and private key management |
-| `MetamorphicCrypto.Hash` | SHA3/SHA2 hashing for public data (fingerprints, safety numbers) |
-| `MetamorphicCrypto.Recovery` | Human-readable recovery keys |
+| Module                        | Purpose                                                          |
+| ----------------------------- | ---------------------------------------------------------------- |
+| `MetamorphicCrypto`           | Top-level convenience API                                        |
+| `MetamorphicCrypto.SecretBox` | XSalsa20-Poly1305 symmetric encryption                           |
+| `MetamorphicCrypto.BoxSeal`   | X25519 anonymous sealed box                                      |
+| `MetamorphicCrypto.Hybrid`    | ML-KEM-768/1024 + X25519 post-quantum hybrid                     |
+| `MetamorphicCrypto.Seal`      | Unified seal/unseal with auto-detection                          |
+| `MetamorphicCrypto.KDF`       | Argon2id key derivation                                          |
+| `MetamorphicCrypto.Keys`      | Key generation and private key management                        |
+| `MetamorphicCrypto.Hash`      | SHA3/SHA2 hashing for public data (fingerprints, safety numbers) |
+| `MetamorphicCrypto.Sign`      | Hybrid ML-DSA + Ed25519 post-quantum signatures (strict-AND)     |
+| `MetamorphicCrypto.Recovery`  | Human-readable recovery keys                                     |
 
 ## Wire Format Compatibility
 
@@ -314,6 +347,7 @@ All ciphertext produced by this library is **byte-compatible** with:
 - The [`metamorphic-crypto`](https://crates.io/crates/metamorphic-crypto) WASM module (browser clients)
 
 This means you can:
+
 - **Replace `enacl`** in existing projects with no data migration
 - **Decrypt on the server** what was encrypted in the browser (and vice versa)
 - **Incrementally adopt** post-quantum encryption without breaking existing data
@@ -322,11 +356,11 @@ This means you can:
 
 **No special deployment steps required.** Precompiled binaries cover:
 
-| Platform | Architectures |
-|----------|--------------|
-| Linux (glibc) | x86_64, aarch64 |
-| macOS | x86_64, aarch64 (Apple Silicon) |
-| Windows | x86_64 |
+| Platform      | Architectures                   |
+| ------------- | ------------------------------- |
+| Linux (glibc) | x86_64, aarch64                 |
+| macOS         | x86_64, aarch64 (Apple Silicon) |
+| Windows       | x86_64                          |
 
 If you deploy to a platform not listed above, set `METAMORPHIC_CRYPTO_BUILD=true`
 and ensure Rust is available in your build environment:

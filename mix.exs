@@ -1,7 +1,7 @@
 defmodule MetamorphicCrypto.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.4.0"
   @repo_url "https://github.com/moss-piglet/metamorphic_crypto"
 
   def project do
@@ -85,6 +85,7 @@ defmodule MetamorphicCrypto.MixProject do
         "Unified Seal/Unseal": [MetamorphicCrypto.Seal],
         "Key Management": [MetamorphicCrypto.Keys, MetamorphicCrypto.KDF],
         Hashing: [MetamorphicCrypto.Hash],
+        Signatures: [MetamorphicCrypto.Sign],
         Recovery: [MetamorphicCrypto.Recovery]
       ]
     ]

@@ -5,10 +5,10 @@
 //! the wire format used by the JavaScript/WASM client.
 
 use metamorphic_crypto::{
-    CryptoError, b64, box_seal, hybrid, kdf, keys, recovery, seal, secretbox, sha3_256, sha3_512,
-    sha3_512_with_context, sha256, sha512,
+    CryptoError, SignatureLevel, b64, box_seal, hybrid, kdf, keys, recovery, seal, secretbox,
+    sha3_256, sha3_512, sha3_512_with_context, sha256, sha512, sign,
 };
-use rustler::{Error, NifResult};
+use rustler::{Binary, Error, NifResult};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -237,6 +237,56 @@ fn nif_sha3_512_with_context(context: &str, data_b64: &str) -> NifResult<String>
     Ok(b64::encode(&sha3_512_with_context(context, &data)))
 }
 
-// ─── NIF Registration ────────────────────────────────────────────────────────
+// ─── Hybrid PQ Signatures (ML-DSA + Ed25519, strict-AND verify) ──────────────
+//
+// Composite post-quantum signatures: every artifact is signed by *both* ML-DSA
+// (FIPS 204) and Ed25519, and verification requires *both* (strict AND). The
+// native crate takes raw message bytes and returns/accepts base64 strings for
+// keys/signatures; the NIF mirrors that exactly (message is a raw Erlang
+// binary, everything else base64). Level is passed as the lowercase atom name
+// ("cat2" / "cat3" / "cat5"); Cat-3 (ML-DSA-65) is the default on the Elixir
+// side. ML-DSA signing is hedged/randomized, so signature bytes are
+// non-reproducible — but keys, framing, and `derive_public_key` are fully
+// deterministic and pinnable. Plain scheduler (mirrors the hybrid KEM keygen);
+// DirtyCpu stays reserved for the Argon2 KDF.
 
+fn signature_level_from_str(level: &str) -> NifResult<SignatureLevel> {
+    match level {
+        "cat2" => Ok(SignatureLevel::Cat2),
+        "cat3" => Ok(SignatureLevel::Cat3),
+        "cat5" => Ok(SignatureLevel::Cat5),
+        _ => Err(Error::Term(Box::new(format!(
+            "unknown signature level: {level}"
+        )))),
+    }
+}
+
+#[rustler::nif]
+fn nif_generate_signing_keypair(level: &str) -> NifResult<(String, String)> {
+    let level = signature_level_from_str(level)?;
+    let kp = sign::generate_signing_keypair_with_level(level);
+    Ok((kp.public_key.clone(), kp.secret_key.clone()))
+}
+
+#[rustler::nif]
+fn nif_derive_signing_public_key(secret_key_b64: &str) -> NifResult<String> {
+    sign::derive_public_key(secret_key_b64).map_err(to_nif_error)
+}
+
+#[rustler::nif]
+fn nif_sign(message: Binary, context: &str, secret_key_b64: &str) -> NifResult<String> {
+    sign::sign(message.as_slice(), context, secret_key_b64).map_err(to_nif_error)
+}
+
+#[rustler::nif]
+fn nif_verify(
+    message: Binary,
+    context: &str,
+    signature_b64: &str,
+    public_key_b64: &str,
+) -> NifResult<bool> {
+    sign::verify(message.as_slice(), context, signature_b64, public_key_b64).map_err(to_nif_error)
+}
+
+// ─── NIF Registration ────────────────────────────────────────────────────────
 rustler::init!("Elixir.MetamorphicCrypto.Native");
