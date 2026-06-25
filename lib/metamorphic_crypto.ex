@@ -26,7 +26,7 @@ defmodule MetamorphicCrypto do
 
   - `MetamorphicCrypto.SecretBox` — symmetric encryption
   - `MetamorphicCrypto.BoxSeal` — public-key encryption
-  - `MetamorphicCrypto.Hybrid` — ML-KEM-768 + X25519 post-quantum
+  - `MetamorphicCrypto.Hybrid` — ML-KEM (512/768/1024) + X25519 post-quantum
   - `MetamorphicCrypto.Seal` — unified seal/unseal (auto-detects format)
   - `MetamorphicCrypto.KDF` — Argon2id key derivation
   - `MetamorphicCrypto.Keys` — key generation and management

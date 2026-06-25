@@ -92,6 +92,20 @@ fn nif_unseal_from_user(
     .map_err(to_nif_error)
 }
 
+// ─── Hybrid PQ KEM (Cat-1: ML-KEM-512) ───────────────────────────────────────
+
+#[rustler::nif]
+fn nif_generate_hybrid_keypair_512() -> (String, String) {
+    let kp = hybrid::generate_hybrid_keypair_512();
+    (kp.public_key, kp.secret_key)
+}
+
+#[rustler::nif]
+fn nif_hybrid_seal_512(plaintext_b64: &str, combined_pk_b64: &str) -> NifResult<String> {
+    let pt = b64::decode(plaintext_b64).map_err(to_nif_error)?;
+    hybrid::hybrid_seal_512(&pt, combined_pk_b64).map_err(to_nif_error)
+}
+
 // ─── Hybrid PQ KEM (Cat-3: ML-KEM-768) ───────────────────────────────────────
 
 #[rustler::nif]

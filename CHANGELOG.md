@@ -1,6 +1,32 @@
 # Changelog
 
-## v0.4.0 (unreleased)
+## v0.5.0 (2026-06-25)
+
+- `MetamorphicCrypto.Hybrid` now surfaces the **Cat-1 (ML-KEM-512 + X25519)**
+  tier, completing the full standardized ML-KEM range (NIST categories 1/3/5):
+  - `generate_keypair/1` accepts `:cat1` (832-byte public key, 32-byte seed);
+    `generate_keypair_512/0` is the convenience alias.
+  - `seal/3` and `seal_raw/3` accept `:cat1`; `seal_512/2` and `seal_raw_512/2`
+    are convenience aliases. Cat-1 ciphertexts carry version tag `0x01`
+    (`0x01 || ML-KEM-512 ct (768 B) || X25519 eph pk (32 B) || nonce (24 B) || secretbox ct`).
+  - `open/2` auto-detects Cat-1/Cat-3/Cat-5 from the version tag — no API change.
+    `hybrid_ciphertext?/1` is length-aware, so short legacy ciphertexts that
+    happen to begin with `0x01` are **not** misdetected as Cat-1.
+- `MetamorphicCrypto.Seal.seal_for_user/3` (and `seal_for_user_raw/3`) now accept
+  `level: :cat1`, mirroring the existing `:cat3`/`:cat5` options, so the unified
+  seal/unseal API spans the full standardized ML-KEM range. `unseal_from_user/4`
+  is unchanged — it already auto-detects the level from the version tag.
+- Honesty note (NIST defines ML-KEM only at categories 1/3/5): there is no
+  Cat-2/Cat-4 KEM. The classical half is always X25519 (~Cat-1 classical), the
+  floor at every tier; the post-quantum half grows Cat-1 → Cat-3 → Cat-5. Wire
+  version tags are scoped per artifact type: on the KEM side `0x01` = Cat-1
+  (ML-KEM-512), whereas on the signature side `0x01` = Cat-2 (ML-DSA-44).
+- Sync the native crate dependency to
+  [`metamorphic-crypto` 0.6.0](https://crates.io/crates/metamorphic-crypto),
+  which adds the Cat-1 KEM API. No change to existing encryption, hashing,
+  signature, or wire formats.
+
+## v0.4.0 (2026-06-24)
 
 - Add `MetamorphicCrypto.Sign` — hybrid post-quantum signatures combining
   **ML-DSA (FIPS 204) + Ed25519** in a composite, strict-AND verified scheme:
@@ -26,7 +52,7 @@
   which exposes the composite signature API. No change to existing encryption,
   hashing, or wire formats.
 
-## v0.3.0 (unreleased)
+## v0.3.0 (2026-06-22)
 
 - Add `MetamorphicCrypto.Hash` — SHA-3 / SHA-2 hashing for **public** data
   (key fingerprints, safety numbers, key-transparency-log entries):

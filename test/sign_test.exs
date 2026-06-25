@@ -54,8 +54,10 @@ defmodule MetamorphicCrypto.SignTest do
     end
 
     test "rejects an unknown level" do
+      unknown_level = :cat9
+
       assert_raise FunctionClauseError, fn ->
-        apply(Sign, :generate_signing_keypair, [:cat9])
+        Sign.generate_signing_keypair(unknown_level)
       end
     end
   end

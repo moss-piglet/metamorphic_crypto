@@ -34,7 +34,7 @@ By the end of this guide you'll have:
                       ┌──────────────────────────────┐
                       │  XSalsa20-Poly1305           │
                       │  X25519 box_seal             │
-                      │  ML-KEM-768 + X25519 hybrid  │
+                      │  ML-KEM 512/768/1024 + X25519│
                       │  Argon2id KDF                │
                       │  Recovery keys               │
                       └──────────┬───────────────────┘
