@@ -31,6 +31,7 @@ defmodule MetamorphicCrypto do
   - `MetamorphicCrypto.KDF` — Argon2id key derivation
   - `MetamorphicCrypto.Keys` — key generation and management
   - `MetamorphicCrypto.Hash` — SHA3/SHA2 hashing for public data (fingerprints, safety numbers)
+  - `MetamorphicCrypto.Sign` — hybrid ML-DSA + Ed25519 post-quantum signatures
   - `MetamorphicCrypto.Recovery` — human-readable recovery keys
 
   ## Wire Format
@@ -40,7 +41,7 @@ defmodule MetamorphicCrypto do
   `metamorphic-crypto` WASM module used in browser clients.
   """
 
-  alias MetamorphicCrypto.{BoxSeal, Hash, Keys, SecretBox}
+  alias MetamorphicCrypto.{BoxSeal, Hash, Keys, SecretBox, Sign}
 
   # ─── Convenience API ──────────────────────────────────────────────────────
 
@@ -168,4 +169,68 @@ defmodule MetamorphicCrypto do
   @spec sha3_512_with_context(context :: String.t(), data_b64 :: String.t()) ::
           {:ok, String.t()} | {:error, String.t()}
   defdelegate sha3_512_with_context(context, data_b64), to: Hash
+
+  @doc """
+  Generate a hybrid ML-DSA + Ed25519 signing keypair (Cat-3 / ML-DSA-65 default).
+
+  Returns `%{public_key: base64, secret_key: base64}`. See
+  `MetamorphicCrypto.Sign` for security levels, the wire format, and the recovery
+  hook.
+
+  ## Example
+
+      kp = MetamorphicCrypto.generate_signing_keypair()
+      kp = MetamorphicCrypto.generate_signing_keypair(:cat5)
+
+  """
+  @spec generate_signing_keypair(Sign.level()) :: Sign.keypair()
+  defdelegate generate_signing_keypair(level \\ :cat3), to: Sign
+
+  @doc """
+  Re-derive the base64 public key from a base64 hybrid signing secret key.
+
+  Deterministic — reproduces the keypair's `public_key` exactly, which is what
+  makes recovery-based key regeneration byte-identical. See
+  `MetamorphicCrypto.Sign`.
+  """
+  @spec derive_public_key(secret_key_b64 :: String.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  defdelegate derive_public_key(secret_key_b64), to: Sign
+
+  @doc """
+  Sign a `message` binary under a UTF-8 `context` with a base64 hybrid
+  `secret_key`.
+
+  Returns `{:ok, signature_b64}`. ML-DSA signing is randomized, so signatures are
+  non-reproducible (but verify). See `MetamorphicCrypto.Sign`.
+
+  ## Example
+
+      {:ok, sig} =
+        MetamorphicCrypto.sign("log entry", "metamorphic/sign/v1", kp.secret_key)
+
+  """
+  @spec sign(message :: binary(), context :: String.t(), secret_key_b64 :: String.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  defdelegate sign(message, context, secret_key_b64), to: Sign
+
+  @doc """
+  Verify a composite `signature` over `message` / `context` against `public_key`.
+
+  Returns `true` only if **both** the Ed25519 and ML-DSA components verify
+  (strict AND); `false` otherwise (including malformed input). See
+  `MetamorphicCrypto.Sign`.
+
+  ## Example
+
+      true = MetamorphicCrypto.verify("log entry", "metamorphic/sign/v1", sig, kp.public_key)
+
+  """
+  @spec verify(
+          message :: binary(),
+          context :: String.t(),
+          signature_b64 :: String.t(),
+          public_key_b64 :: String.t()
+        ) :: boolean()
+  defdelegate verify(message, context, signature_b64, public_key_b64), to: Sign
 end

@@ -94,4 +94,12 @@ defmodule MetamorphicCrypto.Native do
 
   def nif_sha3_512_with_context(_context, _data_b64),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  # Hybrid PQ Signatures (ML-DSA + Ed25519)
+  def nif_generate_signing_keypair(_level), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_derive_signing_public_key(_secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_sign(_message, _context, _secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_verify(_message, _context, _signature_b64, _public_key_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
 end
