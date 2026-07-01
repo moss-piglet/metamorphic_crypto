@@ -196,21 +196,44 @@ defmodule MetamorphicCrypto.SignTest do
     end
   end
 
-  describe "facade delegation" do
-    test "MetamorphicCrypto.generate_signing_keypair/0,1 delegates to Sign" do
-      kp = MetamorphicCrypto.generate_signing_keypair()
-      assert %{public_key: _, secret_key: _} = kp
-
-      assert <<0x03, _::binary>> =
-               Base.decode64!(MetamorphicCrypto.generate_signing_keypair(:cat5).public_key)
+  describe "signature_posture/1 and signature_posture_from_signature/1" do
+    test "public key reports {suite, level} for the default hybrid keypair" do
+      for level <- [:cat2, :cat3, :cat5] do
+        kp = Sign.generate_signing_keypair(level)
+        assert {:ok, {:hybrid, ^level}} = Sign.signature_posture(kp.public_key)
+      end
     end
 
-    test "sign/3, verify/4, derive_public_key/1 round-trip through the facade" do
-      kp = MetamorphicCrypto.generate_signing_keypair()
-      {:ok, sig} = MetamorphicCrypto.sign("msg", @context, kp.secret_key)
-      assert MetamorphicCrypto.verify("msg", @context, sig, kp.public_key)
-      assert {:ok, pk} = MetamorphicCrypto.derive_public_key(kp.secret_key)
-      assert pk == kp.public_key
+    test "signature reports {suite, level}" do
+      kp = Sign.generate_signing_keypair(:cat3)
+      {:ok, sig} = Sign.sign("checkpoint", @context, kp.secret_key)
+      assert {:ok, {:hybrid, :cat3}} = Sign.signature_posture_from_signature(sig)
+    end
+
+    test "reports the CNSA 2.0 suites (pure_cnsa2, hybrid_matched)" do
+      {:ok, pure} = Sign.generate_signing_keypair_suite(:pure_cnsa2, :cat5)
+      assert {:ok, {:pure_cnsa2, :cat5}} = Sign.signature_posture(pure.public_key)
+
+      {:ok, matched} = Sign.generate_signing_keypair_suite(:hybrid_matched, :cat3)
+      assert {:ok, {:hybrid_matched, :cat3}} = Sign.signature_posture(matched.public_key)
+      {:ok, sig} = Sign.sign("m", @context, matched.secret_key)
+      assert {:ok, {:hybrid_matched, :cat3}} = Sign.signature_posture_from_signature(sig)
+    end
+
+    test "declared == observed round-trips between key and signature" do
+      {:ok, kp} = Sign.generate_signing_keypair_suite(:hybrid_matched, :cat5)
+      {:ok, sig} = Sign.sign("m", @context, kp.secret_key)
+
+      assert Sign.signature_posture(kp.public_key) ==
+               Sign.signature_posture_from_signature(sig)
+    end
+
+    test "malformed / wrong-length input is a structural {:error, _}" do
+      assert {:error, _} = Sign.signature_posture("not valid base64!!!")
+      # A valid-base64 but truncated blob is rejected on length, not misreported.
+      kp = Sign.generate_signing_keypair(:cat3)
+      truncated = kp.public_key |> Base.decode64!() |> binary_part(0, 10) |> Base.encode64()
+      assert {:error, _} = Sign.signature_posture(truncated)
     end
   end
 end

@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.8.0 (2026-07-01)
+
+Surfaces the standalone **HKDF-SHA512** (RFC 5869) primitive added in
+[`metamorphic-crypto` 0.10.0](https://crates.io/crates/metamorphic-crypto), for
+cross-language parity with the Rust core and WASM build. Fully **additive and
+non-breaking**: no existing NIF, wire format, default, or export changes — only
+one new function pair and its NIF binding. The native dependency is bumped
+`0.9` → `0.10` (published crate only; no `[patch]`/path deps). `p256` remains
+pinned at `=0.14.0-rc.14`.
+
+- **`MetamorphicCrypto.KDF.hkdf_sha512/4`** (+ `!`) — HKDF-SHA512 (RFC 5869),
+  one call performing Extract-then-Expand. Base64 in/out, byte-identical across
+  native Rust, WASM (`hkdfSha512`), this NIF, and `@noble/hashes` / WebCrypto
+  HKDF-SHA-512. Unlike the bare hashes in `MetamorphicCrypto.Hash`, this is the
+  **correct** construction for deriving a key from *secret* input keying
+  material, especially when combining more than one secret with auditable domain
+  separation. `salt` / `ikm` are base64; `info` is a binary domain-separation
+  label (normally a versioned UTF-8 string); `length` is the OKM length in bytes.
+- **Salt semantics:** an empty `salt` means "not provided" (RFC 5869 §2.2), i.e.
+  `HashLen` (64) zero bytes. `MetamorphicCrypto.KDF.hkdf_sha512_hash_len/0`
+  returns the SHA-512 output length (`64`); the maximum OKM is `255 * 64 = 16320`
+  bytes (a longer `length` returns `{:error, _}`).
+- **Purpose:** combining two secrets into one wrapping key with auditable domain
+  separation — specifically Mosslet's WebAuthn-PRF device-bound `user_key` wrap
+  (board #362/#369):
+  `HKDF-SHA512(salt = wrap_salt, ikm = password_key ‖ prf_output, info = "mosslet/user_key-wrap/v1", len = 32)`.
+  The combine runs only in the browser (the server never sees the inputs); this
+  NIF exists for parity, testing, and general server-side use.
+- Cross-language parity: pinned **through the NIF** to the RFC 5869 Test Case 1
+  inputs recomputed with SHA-512 (L = 42), reusing the Rust core's locked vector
+  value-for-value, plus determinism, domain-separation, salt-None, and
+  output-length tests.
+
+## v0.7.0 (2026-06-30)
+
+Surfaces the additive primitives added in
+[`metamorphic-crypto` 0.8/0.9](https://crates.io/crates/metamorphic-crypto),
+completing on-spec IETF KEYTRANS standard-suite support. Everything here is
+**additive and non-breaking**: no existing NIF, wire format, default, or export
+changes — only new modules and accessors. The native dependency is bumped
+`0.7` → `0.9` (published crate only; no `[patch]`/path deps). `p256` remains
+pinned at `=0.14.0-rc.14`.
+
+- **`MetamorphicCrypto.Mac`** — HMAC-SHA256 (RFC 2104 / FIPS 198-1) via
+  `hmac_sha256/2` (+ `!`). Base64 in/out, byte-identical across native Rust,
+  WASM, and this NIF. The generic keyed-MAC primitive KEYTRANS standard suites
+  use for commitments. Pinned to RFC 4231 test cases 1/2/3/6.
+- **`MetamorphicCrypto.Vrf`** — ECVRF-Edwards25519-SHA512-TAI (RFC 9381, suite
+  `0x03`): `generate_keypair/0`, `public_key/1`, `prove/2`, `verify/3`,
+  `proof_to_hash/1`, and the suite/length constants. `verify/3` returns
+  `{:ok, output}` for a valid proof, `:invalid` for a cryptographic rejection,
+  and `{:error, reason}` for a structural (malformed-input) failure. Prove/verify
+  run on the dirty CPU scheduler. Pinned to RFC 9381 Appendix B vectors.
+- **`MetamorphicCrypto.VrfP256`** — ECVRF-P256-SHA256-TAI (RFC 9381, suite
+  `0x01`; sk 32 / pk 33 / proof 81 / output 32), the on-spec VRF for the IETF
+  `KT_128_SHA256_P256` KEYTRANS suite. Identical API shape and result contract to
+  `MetamorphicCrypto.Vrf`. Pinned to RFC 9381 Appendix B.1 Examples 10/11/12.
+- **`MetamorphicCrypto.Sign`** gains posture introspection:
+  `signature_posture/1` (public key) and `signature_posture_from_signature/1`
+  (signature) return `{:ok, {suite, level}}` typed atoms
+  (`:hybrid | :hybrid_matched | :pure_cnsa2`, `:cat2 | :cat3 | :cat5`), or
+  `{:error, reason}` for a malformed/wrong-length artifact. Read-only, no
+  secrets; the raw wire tag stays private. Cat-2 canonically decodes to
+  `{:hybrid, :cat2}`.
+- Cross-language parity: HMAC and both VRFs verify their RFC known-answer vectors
+  **through the NIF**, reusing the Rust core's locked vectors value-for-value so
+  parity across native Rust / WASM / NIF is proven.
+
 ## v0.6.0 (2026-06-25)
 
 Surfaces the **CNSA 2.0 suite axis** added in

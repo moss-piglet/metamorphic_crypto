@@ -308,11 +308,84 @@ defmodule MetamorphicCrypto.Sign do
     end
   end
 
+  @doc """
+  Report the `{suite, level}` posture declared by a base64 signing **public
+  key**, without exposing the raw wire tag.
+
+  Composite artifacts produced by this package are *self-describing*: their
+  leading version tag encodes which `t:suite/0` and `t:level/0` produced them.
+  This is the typed, opaque decode of that contract — it lets a verifier learn
+  the posture of a key it was handed and check it against an independently
+  declared expectation (a "declared == observed" check), without re-deriving the
+  private wire tags itself.
+
+  The full decoded blob length is validated against the expected length for the
+  decoded posture (mirroring `verify/4`'s length checks), so a truncated,
+  over-long, or otherwise malformed key is rejected with `{:error, reason}`
+  rather than silently misreporting a posture. An unknown/missing tag or invalid
+  base64 is likewise `{:error, reason}`.
+
+  Returns `{:ok, {suite, level}}` or `{:error, reason}`.
+
+  > #### Declared posture, not a verification result {: .info}
+  >
+  > This reports the *declared format posture* read from the artifact's tag and
+  > validated for length. It is **not** itself a cryptographic guarantee that a
+  > signature verifies — pair it with `verify/4` for authenticity.
+
+  ## Cat-2 aliasing
+
+  `:hybrid` and `:hybrid_matched` are byte-identical at `:cat2` (both tag
+  `0x01`), so a Cat-2 key canonically decodes to `{:hybrid, :cat2}`.
+
+  ## Example
+
+      {:ok, kp} = MetamorphicCrypto.Sign.generate_signing_keypair_suite(:pure_cnsa2, :cat5)
+      {:ok, {:pure_cnsa2, :cat5}} = MetamorphicCrypto.Sign.signature_posture(kp.public_key)
+
+  """
+  @spec signature_posture(public_key_b64 :: String.t()) ::
+          {:ok, {suite(), level()}} | {:error, String.t()}
+  def signature_posture(public_key_b64) when is_binary(public_key_b64) do
+    to_posture(Native.nif_signature_posture(public_key_b64))
+  end
+
+  @doc """
+  Report the `{suite, level}` posture declared by a base64 composite
+  **signature**, without exposing the raw wire tag.
+
+  The signature counterpart to `signature_posture/1`; see that function for the
+  self-describing-artifact contract, the Cat-2 aliasing note
+  (`{:hybrid, :cat2}`), and the honest framing (declared posture, not a
+  verification result). The full decoded length is validated against the expected
+  signature length for the decoded posture, so a truncated/garbage/wrong-length
+  signature is `{:error, reason}` rather than misreported.
+
+  Returns `{:ok, {suite, level}}` or `{:error, reason}`.
+
+  ## Example
+
+      kp = MetamorphicCrypto.Sign.generate_signing_keypair(:cat3)
+      {:ok, sig} = MetamorphicCrypto.Sign.sign("checkpoint", MetamorphicCrypto.Sign.sign_context_v1(), kp.secret_key)
+      {:ok, {:hybrid, :cat3}} = MetamorphicCrypto.Sign.signature_posture_from_signature(sig)
+
+  """
+  @spec signature_posture_from_signature(signature_b64 :: String.t()) ::
+          {:ok, {suite(), level()}} | {:error, String.t()}
+  def signature_posture_from_signature(signature_b64) when is_binary(signature_b64) do
+    to_posture(Native.nif_signature_posture_from_signature(signature_b64))
+  end
+
   # ─── Internal ──────────────────────────────────────────────────────────────
 
   defp nif_suite(:hybrid), do: "hybrid"
   defp nif_suite(:hybrid_matched), do: "hybrid_matched"
   defp nif_suite(:pure_cnsa2), do: "pure_cnsa2"
+
+  defp to_posture({suite, level}) when is_binary(suite) and is_binary(level),
+    do: {:ok, {String.to_existing_atom(suite), String.to_existing_atom(level)}}
+
+  defp to_posture({:error, reason}), do: {:error, reason}
 
   defp wrap({:error, reason}), do: {:error, reason}
   defp wrap(value) when is_binary(value), do: {:ok, value}

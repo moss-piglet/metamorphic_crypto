@@ -140,4 +140,37 @@ defmodule MetamorphicCrypto.Native do
 
   def nif_verify(_message, _context, _signature_b64, _public_key_b64),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  # Signature posture introspection
+  def nif_signature_posture(_public_key_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_signature_posture_from_signature(_signature_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  # HMAC-SHA256
+  def nif_hmac_sha256(_key_b64, _msg_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  # HKDF-SHA512 (RFC 5869)
+  def nif_hkdf_sha512(_salt_b64, _ikm_b64, _info, _length),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  # ECVRF-Edwards25519-SHA512-TAI (suite 0x03)
+  def nif_ecvrf_generate_keypair, do: :erlang.nif_error(:nif_not_loaded)
+  def nif_ecvrf_public_key(_secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_ecvrf_prove(_secret_key_b64, _alpha_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_ecvrf_verify(_public_key_b64, _alpha_b64, _proof_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_ecvrf_proof_to_hash(_proof_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  # ECVRF-P256-SHA256-TAI (suite 0x01)
+  def nif_ecvrf_p256_generate_keypair, do: :erlang.nif_error(:nif_not_loaded)
+  def nif_ecvrf_p256_public_key(_secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
+  def nif_ecvrf_p256_prove(_secret_key_b64, _alpha_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_ecvrf_p256_verify(_public_key_b64, _alpha_b64, _proof_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_ecvrf_p256_proof_to_hash(_proof_b64), do: :erlang.nif_error(:nif_not_loaded)
 end

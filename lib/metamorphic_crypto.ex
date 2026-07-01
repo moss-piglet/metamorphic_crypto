@@ -31,7 +31,10 @@ defmodule MetamorphicCrypto do
   - `MetamorphicCrypto.KDF` — Argon2id key derivation
   - `MetamorphicCrypto.Keys` — key generation and management
   - `MetamorphicCrypto.Hash` — SHA3/SHA2 hashing for public data (fingerprints, safety numbers)
+  - `MetamorphicCrypto.Mac` — HMAC-SHA256 keyed message authentication (RFC 2104)
   - `MetamorphicCrypto.Sign` — hybrid ML-DSA + Ed25519 post-quantum signatures
+  - `MetamorphicCrypto.Vrf` — ECVRF-Edwards25519-SHA512-TAI verifiable random function (RFC 9381)
+  - `MetamorphicCrypto.VrfP256` — ECVRF-P256-SHA256-TAI verifiable random function (RFC 9381)
   - `MetamorphicCrypto.Recovery` — human-readable recovery keys
 
   ## Wire Format
