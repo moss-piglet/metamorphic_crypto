@@ -649,9 +649,9 @@ dependencies = [
 
 [[package]]
 name = "metamorphic-crypto"
-version = "0.7.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8146c6c276f784abad2463dcdae672ec4d1c29fd29f579167ce37204bcf7a446"
+checksum = "367d6badda44019cea63853c678873873ef3cc2cb456c89a529db0e66a8f50c3"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -659,15 +659,19 @@ dependencies = [
  "blake2",
  "crypto_box",
  "crypto_secretbox",
+ "curve25519-dalek",
  "ed25519-dalek",
  "ed448-goldilocks",
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "hkdf",
+ "hmac",
  "js-sys",
  "ml-dsa",
  "ml-kem",
+ "p256",
  "p521",
+ "rfc6979",
  "sha2 0.11.0",
  "sha3",
  "thiserror",
@@ -747,6 +751,19 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "p256"
+version = "0.14.0-rc.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c855a8d2ffd346aa03122626f22e96e3aa75e3bfe64e6bf6cb82f71821ed6ae7"
+dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primefield",
+ "primeorder",
+ "sha2 0.11.0",
+]
 
 [[package]]
 name = "p521"

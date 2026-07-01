@@ -168,15 +168,41 @@ on decrypt — old and new ciphertexts coexist seamlessly.
 {:ok, "secret"} = MetamorphicCrypto.Seal.unseal_from_user(ct, pk, sk, pq_secret_key: pq_sk)
 ```
 
-### Key Derivation (Argon2id)
+### Key Derivation (Argon2id + HKDF-SHA512)
 
-Derive a session key from a password. Uses libsodium's interactive parameters
-(64 MiB, 2 iterations).
+`MetamorphicCrypto.KDF` has two KDFs — pick by what your input is:
+
+- **Argon2id** — stretch a low-entropy **password** into a key (slow, memory-hard).
+- **HKDF-SHA512** — combine/diversify already-high-entropy **secret** material
+  with domain separation (fast, RFC 5869).
+
+Derive a session key from a password (libsodium interactive params: 64 MiB, 2
+iterations):
 
 ```elixir
 salt = MetamorphicCrypto.Keys.generate_salt()
 {:ok, session_key} = MetamorphicCrypto.KDF.derive_session_key("user password", salt)
 ```
+
+Derive a wrapping key from one or more secrets with HKDF-SHA512. Base64 in,
+base64 out — byte-for-byte identical across native Rust, the WASM build
+(`hkdfSha512`), and `@noble/hashes` / WebCrypto, so a key derived in the browser
+re-derives identically here. `info` is a versioned domain-separation label:
+
+```elixir
+# e.g. combine a password-derived key with a WebAuthn-PRF output into one
+# 32-byte wrapping key (the combine itself runs in the browser; the server
+# never sees the inputs).
+ikm = Base.encode64(password_key <> prf_output)
+{:ok, wrapping_key} =
+  MetamorphicCrypto.KDF.hkdf_sha512(wrap_salt_b64, ikm, "mosslet/user_key-wrap/v1", 32)
+```
+
+> **Use HKDF, not a bare hash, for secrets.** HKDF-SHA512 is the correct way to
+> derive a key from secret input keying material — especially when combining
+> more than one secret. Reserve the SHA-3/SHA-2 helpers below for **public**
+> data only. An empty `salt` means "not provided" (RFC 5869 §2.2). Max output is
+> `255 * 64 = 16320` bytes.
 
 ### Recovery Keys
 
@@ -230,7 +256,8 @@ Want hex instead of base64? `digest |> Base.decode64!() |> Base.encode16(case: :
 > **Public data only.** These digests are for data whose input and output are
 > both meant to be public. They intentionally add no zeroize/constant-time
 > ceremony. **Do not hash secrets** (passwords, private keys) with them — use
-> `MetamorphicCrypto.KDF.derive_session_key/2` (Argon2id) for secret material.
+> `MetamorphicCrypto.KDF.derive_session_key/2` (Argon2id, from a password) or
+> `MetamorphicCrypto.KDF.hkdf_sha512/4` (HKDF, from secret key material) instead.
 
 ### Signatures (hybrid ML-DSA + Ed25519)
 
@@ -263,6 +290,52 @@ account recovery). Full menu in `MetamorphicCrypto.Sign`.
 > **Keep the `secret_key` sensitive.** It is a 65-byte base64 blob. The native
 > core zeroizes seed material on drop, but the Elixir base64 string is a regular
 > binary — store it encrypted at rest and avoid logging it.
+
+Composite artifacts are self-describing. `MetamorphicCrypto.Sign.signature_posture/1`
+(public key) and `signature_posture_from_signature/1` (signature) report the
+`{suite, level}` a key or signature declares — as typed atoms
+(`:hybrid | :hybrid_matched | :pure_cnsa2`, `:cat2 | :cat3 | :cat5`) — without
+exposing the raw wire tag, for a "declared == observed" check alongside `verify/4`.
+
+### Message Authentication (HMAC-SHA256)
+
+Generic keyed MAC (RFC 2104 / FIPS 198-1) — the primitive the IETF KEYTRANS
+standard suites use for commitments. Base64 in/out, byte-identical across native
+Rust, WASM, and this NIF.
+
+```elixir
+{:ok, tag} =
+  MetamorphicCrypto.Mac.hmac_sha256(Base.encode64(key), Base.encode64(message))
+```
+
+### Verifiable Random Functions (ECVRF, RFC 9381)
+
+A VRF maps an input `alpha` to a pseudorandom output `beta` plus a proof `pi`
+that anyone can verify against the public key — giving *index privacy* with a
+verifiable, non-equivocable mapping (the basis for CONIKS-style key
+transparency). Two RFC 9381 ciphersuites are provided:
+
+| Module                       | Ciphersuite (RFC 9381)              | Suite | KEYTRANS suite            |
+|------------------------------|-------------------------------------|-------|---------------------------|
+| `MetamorphicCrypto.Vrf`      | ECVRF-Edwards25519-SHA512-TAI       | `0x03`| `KT_128_SHA256_Ed25519`   |
+| `MetamorphicCrypto.VrfP256`  | ECVRF-P256-SHA256-TAI               | `0x01`| `KT_128_SHA256_P256`      |
+
+```elixir
+%{secret_key: sk, public_key: pk} = MetamorphicCrypto.Vrf.generate_keypair()
+alpha = Base.encode64("identity index")
+
+{:ok, pi} = MetamorphicCrypto.Vrf.prove(sk, alpha)
+
+# A valid proof returns the VRF output; a cryptographic reject is :invalid;
+# a malformed input is {:error, reason}.
+{:ok, beta} = MetamorphicCrypto.Vrf.verify(pk, alpha, pi)
+:invalid = MetamorphicCrypto.Vrf.verify(pk, Base.encode64("other"), pi)
+```
+
+> **These VRFs are classical.** ECVRF is elliptic-curve (not post-quantum) and
+> protects exactly one property: KEYTRANS *index privacy*. Integrity,
+> authenticity, and the hash-based commitments are post-quantum and do not rely
+> on the VRF. Not FIPS-validated.
 
 ## Architecture Patterns
 
@@ -383,10 +456,13 @@ encryption operations and post-quantum crypto, use MetamorphicCrypto.
 | `MetamorphicCrypto.BoxSeal`   | X25519 anonymous sealed box                                      |
 | `MetamorphicCrypto.Hybrid`    | Post-quantum KEM/seal: ML-KEM-512/768/1024 + X25519 hybrid, plus the opt-in CNSA 2.0 suite axis (matched-strength hybrid · pure ML-KEM-1024) |
 | `MetamorphicCrypto.Seal`      | Unified seal/unseal with auto-detection                          |
-| `MetamorphicCrypto.KDF`       | Argon2id key derivation                                          |
+| `MetamorphicCrypto.KDF`       | Key derivation: Argon2id (passwords) · HKDF-SHA512 (secret key material, RFC 5869) |
 | `MetamorphicCrypto.Keys`      | Key generation and private key management                        |
 | `MetamorphicCrypto.Hash`      | SHA3/SHA2 hashing for public data (fingerprints, safety numbers) |
+| `MetamorphicCrypto.Mac`       | HMAC-SHA256 keyed message authentication (RFC 2104)              |
 | `MetamorphicCrypto.Sign`      | Post-quantum signatures: ML-DSA + Ed25519 (strict-AND), plus the opt-in CNSA 2.0 suite axis (matched-strength hybrid · pure ML-DSA-87) |
+| `MetamorphicCrypto.Vrf`       | Verifiable random function: ECVRF-Edwards25519-SHA512-TAI (RFC 9381) |
+| `MetamorphicCrypto.VrfP256`   | Verifiable random function: ECVRF-P256-SHA256-TAI (RFC 9381)     |
 | `MetamorphicCrypto.Recovery`  | Human-readable recovery keys                                     |
 
 ## Wire Format Compatibility
