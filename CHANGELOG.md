@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.1 (2026-07-08)
+
+Supply-chain / dependency maintenance release. Fully **non-breaking**: no NIF,
+wire format, default, or export changes.
+
+- Bump native `metamorphic-crypto` `0.10.0` → `0.10.2`, and refresh the NIF
+  `Cargo.lock` so the transitive **`cmov` 0.5.3 → 0.5.4** security fix
+  (RustSec **GHSA-3rjw-m598-pq24 / CVE-2026-50185**, aarch64 `Cmov`/`CmovEq`
+  correctness) and **`aes-gcm` 0.11.0** (rc → stable) are actually pulled in.
+- Bump `rustler` `0.37.3` → `0.38.0`; precompiled NIFs rebuilt for all targets.
+- CI: github-actions group updated (checkout v7, cache v6,
+  attest-build-provenance v4.1.1, gh-release v3, etc.).
+- Dev tooling: `ex_doc` 0.40.3, `earmark_parser` 1.4.45, `makeup` 1.2.2.
+
 ## v0.8.0 (2026-07-01)
 
 Surfaces the standalone **HKDF-SHA512** (RFC 5869) primitive added in
