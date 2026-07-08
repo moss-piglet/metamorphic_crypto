@@ -34,7 +34,7 @@ defmodule MetamorphicCrypto.MixProject do
 
   defp deps do
     [
-      {:rustler, "~> 0.37.3", runtime: false},
+      {:rustler, "~> 0.38.0", runtime: false},
       {:rustler_precompiled, "~> 0.8"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
