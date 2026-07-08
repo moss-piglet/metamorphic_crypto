@@ -35,9 +35,9 @@ dependencies = [
 
 [[package]]
 name = "aes-gcm"
-version = "0.11.0-rc.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da8c919c118108f144adecad74b425b804ad075580d605d9b33c2d6d1c62a2f8"
+checksum = "fdf011db2e21ce0d575593d749db5554b47fed37aff429e4dc50bc91ac93a028"
 dependencies = [
  "aead 0.6.1",
  "aes",
@@ -649,9 +649,9 @@ dependencies = [
 
 [[package]]
 name = "metamorphic-crypto"
-version = "0.10.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "367d6badda44019cea63853c678873873ef3cc2cb456c89a529db0e66a8f50c3"
+checksum = "50f515c58808cb493ddde7c3141c98dcfa439df2172939d4fb30efad6597d221"
 dependencies = [
  "aes-gcm",
  "argon2",
