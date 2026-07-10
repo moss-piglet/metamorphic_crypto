@@ -6,8 +6,8 @@
 
 use metamorphic_crypto::{
     CryptoError, SecurityLevel, SignatureLevel, Suite, b64, box_seal, hkdf, hmac_sha256, hybrid,
-    kdf, keys, recovery, seal, secretbox, sha3_256, sha3_512, sha3_512_with_context, sha256,
-    sha512, sign, vrf, vrf_p256,
+    kdf, keys, on_signing_stack, recovery, seal, secretbox, sha3_256, sha3_512,
+    sha3_512_with_context, sha256, sha512, sign, vrf, vrf_p256,
 };
 use rustler::{Binary, Error, NifResult};
 
@@ -380,8 +380,20 @@ fn nif_sha3_512_with_context(context: &str, data_b64: &str) -> NifResult<String>
 // ("cat2" / "cat3" / "cat5"); Cat-3 (ML-DSA-65) is the default on the Elixir
 // side. ML-DSA signing is hedged/randomized, so signature bytes are
 // non-reproducible — but keys, framing, and `derive_public_key` are fully
-// deterministic and pinnable. Plain scheduler (mirrors the hybrid KEM keygen);
-// DirtyCpu stays reserved for the Argon2 KDF.
+// deterministic and pinnable.
+//
+// SCHEDULING: ML-DSA signing / keygen / verifying-key expansion are CPU-bound
+// and — critically — allocate large intermediate lattice matrices *on the
+// stack* inside the upstream `ml-dsa` crate (fixed-size arrays we cannot box
+// from here). On the BEAM dirty-CPU scheduler thread's modest default stack
+// (`+sssdcpu`, ~320 KB) that overflows the guard page and takes the whole VM
+// down with SIGBUS. So these four entry points run `schedule = "DirtyCpu"` AND
+// route the ML-DSA-bearing body through `metamorphic_crypto::on_signing_stack`,
+// which borrows a generous (32 MiB) worker-thread stack and blocks the dirty
+// scheduler on the join. Only the crate call runs on the worker; cheap argument
+// parsing and all Rustler term construction stay on the caller (owned, `Send`
+// data crosses the boundary). `nif_verify` and posture introspection use far
+// less stack and stay as-is.
 
 fn signature_level_from_str(level: &str) -> NifResult<SignatureLevel> {
     match level {
@@ -394,10 +406,10 @@ fn signature_level_from_str(level: &str) -> NifResult<SignatureLevel> {
     }
 }
 
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn nif_generate_signing_keypair(level: &str) -> NifResult<(String, String)> {
     let level = signature_level_from_str(level)?;
-    let kp = sign::generate_signing_keypair_with_level(level);
+    let kp = on_signing_stack(move || sign::generate_signing_keypair_with_level(level));
     Ok((kp.public_key.clone(), kp.secret_key.clone()))
 }
 
@@ -406,22 +418,24 @@ fn nif_generate_signing_keypair(level: &str) -> NifResult<(String, String)> {
 // a suite-aware binding. `Suite::PureCnsa2` is ML-DSA-87 (Cat-5) only;
 // `Suite::HybridMatched` pairs ML-DSA with a category-matched classical curve
 // (Cat-3 → Ed448, Cat-5 → ECDSA-P-521 hedged).
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn nif_generate_signing_keypair_suite(suite: &str, level: &str) -> NifResult<(String, String)> {
     let suite = suite_from_str(suite)?;
     let level = signature_level_from_str(level)?;
-    let kp = sign::generate_signing_keypair_suite(suite, level).map_err(to_nif_error)?;
+    let kp = on_signing_stack(move || sign::generate_signing_keypair_suite(suite, level))
+        .map_err(to_nif_error)?;
     Ok((kp.public_key.clone(), kp.secret_key.clone()))
 }
 
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn nif_derive_signing_public_key(secret_key_b64: &str) -> NifResult<String> {
-    sign::derive_public_key(secret_key_b64).map_err(to_nif_error)
+    on_signing_stack(move || sign::derive_public_key(secret_key_b64)).map_err(to_nif_error)
 }
 
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn nif_sign(message: Binary, context: &str, secret_key_b64: &str) -> NifResult<String> {
-    sign::sign(message.as_slice(), context, secret_key_b64).map_err(to_nif_error)
+    let msg = message.as_slice();
+    on_signing_stack(move || sign::sign(msg, context, secret_key_b64)).map_err(to_nif_error)
 }
 
 #[rustler::nif]

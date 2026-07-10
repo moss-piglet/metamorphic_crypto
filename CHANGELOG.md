@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.8.2 (2026-07-09)
+
+Robustness release for **ML-DSA signing / key generation on the BEAM dirty-CPU
+scheduler**. Fully **non-breaking**: no NIF signature, wire format, default, or
+export changes — purely a scheduling / stack-safety fix. Existing signatures and
+keys are byte-for-byte unaffected.
+
+### Background
+
+ML-DSA (FIPS 204) allocates large intermediate lattice working sets *on the
+stack* inside the upstream `ml-dsa` crate (hedged signing expands matrix `A` and
+buffers polynomial vectors; keygen / verifying-key expansion likewise) — code we
+cannot box onto the heap. The BEAM dirty-CPU scheduler thread's default stack
+(`+sssdcpu`, ~320 KB) is far too small, so those ops could overflow the guard
+page and take the whole VM down with **SIGBUS**.
+
+### Fix
+
+- `nif_sign`, `nif_generate_signing_keypair`, `nif_generate_signing_keypair_suite`,
+  and `nif_derive_signing_public_key` now run on `schedule = "DirtyCpu"` **and**
+  route their ML-DSA-bearing body through the shared, audited
+  `metamorphic_crypto::on_signing_stack` guard (a 32 MiB worker-thread stack;
+  the dirty scheduler blocks on the join). No `vm.args` tuning is pushed onto
+  consumers. `nif_verify`, posture introspection, Argon2, and the VRFs are
+  unaffected (verify uses far less stack and stays as-is).
+- Bump native `metamorphic-crypto` `0.10.2` → `0.10.5` (which introduces the
+  `on_signing_stack` helper and `RECOMMENDED_SIGNING_STACK_BYTES`).
+
+### Tests
+
+- New Rust test (`native/.../tests/signing_stack.rs`): guarded keygen → sign →
+  verify roundtrip at Cat-3 and Cat-5.
+- New ExUnit SIGBUS-regression block (`test/sign_test.exs`): drives
+  keygen/derive/sign/verify from a spawned process at Cat-3 **and** Cat-5
+  (ML-DSA-87), asserting real results (a regression would crash the emulator).
+
 ## v0.8.1 (2026-07-08)
 
 Supply-chain / dependency maintenance release. Fully **non-breaking**: no NIF,

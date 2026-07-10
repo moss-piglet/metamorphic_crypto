@@ -236,4 +236,36 @@ defmodule MetamorphicCrypto.SignTest do
       assert {:error, _} = Sign.signature_posture(truncated)
     end
   end
+
+  # Regression guard for the ML-DSA dirty-CPU stack overflow (SIGBUS). ML-DSA
+  # signing / keygen allocate large intermediate lattice matrices on the stack
+  # inside the upstream ml-dsa crate; on the BEAM dirty-CPU scheduler's ~320 KB
+  # default stack that overflows and takes the whole VM down with SIGBUS. The
+  # NIF now runs these on schedule = "DirtyCpu" AND borrows a 32 MiB worker stack
+  # (metamorphic_crypto::on_signing_stack). If that guard regressed, the calls
+  # below would crash the emulator rather than return — so a real result here is
+  # the assertion. We drive keygen -> derive -> sign -> verify from a spawned
+  # process (a distinct scheduler context) at Cat-3 AND Cat-5 (ML-DSA-87, the
+  # heaviest parameter set that motivated the fix).
+  describe "dirty-CPU large-stack signing (SIGBUS regression)" do
+    for level <- [:cat3, :cat5] do
+      test "keygen/derive/sign/verify survive and return real results at #{level}" do
+        level = unquote(level)
+
+        result =
+          Task.async(fn ->
+            kp = Sign.generate_signing_keypair(level)
+            derived = Sign.derive_public_key!(kp.secret_key)
+            {:ok, sig} = Sign.sign("checkpoint payload", @context, kp.secret_key)
+            verified? = Sign.verify("checkpoint payload", @context, sig, kp.public_key)
+            {kp.public_key, derived, verified?}
+          end)
+          |> Task.await(30_000)
+
+        {public_key, derived, verified?} = result
+        assert derived == public_key
+        assert verified? == true
+      end
+    end
+  end
 end
