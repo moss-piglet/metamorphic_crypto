@@ -1,7 +1,7 @@
 defmodule MetamorphicCrypto.MixProject do
   use Mix.Project
 
-  @version "0.8.1"
+  @version "0.8.2"
   @repo_url "https://github.com/moss-piglet/metamorphic_crypto"
 
   def project do
