@@ -649,9 +649,9 @@ dependencies = [
 
 [[package]]
 name = "metamorphic-crypto"
-version = "0.10.5"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f171acdb3a83a0c854e3c83dc32ba39c470e0f6e4add5a68efc5ba27ac5621f"
+checksum = "04054238a950dbf5d48855ed6746e3a2f24606e55e3daefa47dfff90ce49a8e2"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -671,6 +671,7 @@ dependencies = [
  "ml-kem",
  "p256",
  "p521",
+ "primeorder",
  "rfc6979",
  "sha2 0.11.0",
  "sha3",
