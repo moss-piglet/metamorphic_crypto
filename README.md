@@ -337,6 +337,39 @@ alpha = Base.encode64("identity index")
 > authenticity, and the hash-based commitments are post-quantum and do not rely
 > on the VRF. Not FIPS-validated.
 
+### Partially Oblivious PRFs (POPRF, RFC 9497)
+
+A POPRF is the oblivious sibling of the VRF for CONIKS-style key transparency:
+the *client* blinds its input, the server evaluates the blinded element under
+its secret key and returns a DLEQ proof, and the client unblinds and verifies —
+the server **never sees the cleartext input at query time**, yet both parties
+arrive at the same deterministic output. One RFC 9497 suite is provided:
+OPRF(ristretto255, SHA-512), modePOPRF (`0x02`).
+
+```elixir
+# Server setup (deterministic deployment key from a managed master seed):
+{:ok, %{secret_key: sk, public_key: pk}} =
+  MetamorphicCrypto.Poprf.derive_key_pair(seed_b64, key_info_b64)
+
+# Client: blind locally; send ONLY the blinded element.
+%{blind: blind, blinded_element: blinded, tweaked_key: tweaked} =
+  MetamorphicCrypto.Poprf.blind(input_b64, info_b64, pk)
+
+# Server: evaluate the blinded element (learns nothing about the input).
+{:ok, {evaluated, proof}} =
+  MetamorphicCrypto.Poprf.blind_evaluate(sk, blinded, info_b64)
+
+# Client: unblind + verify the DLEQ proof (:invalid on cryptographic reject).
+{:ok, output} =
+  MetamorphicCrypto.Poprf.finalize(input_b64, blind, evaluated, blinded, proof, info_b64, tweaked)
+```
+
+> **Blinding is classical.** 2HashDH is elliptic-curve (ristretto255): recorded
+> evaluation transcripts are not post-quantum private
+> (harvest-now/unblind-later). It protects exactly one property: *query-time*
+> index privacy against the operator. Integrity and authenticity elsewhere are
+> post-quantum and do not rely on the POPRF. Not FIPS-validated.
+
 ## Architecture Patterns
 
 ### When to Use This Library

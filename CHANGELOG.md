@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.9.0 (2026-08-05)
+
+Additive privacy primitive. Surfaces **RFC 9497 POPRF (OPRF(ristretto255,
+SHA-512), modePOPRF `0x02`)** from the audited Rust core — the oblivious
+sibling of the VRF modules for CONIKS-style key transparency: a client computes
+a keyed, deterministic output over its private input **without the server ever
+seeing that input** (blind → blind-evaluate + DLEQ proof → unblind + verify),
+removing the query-time cleartext-label exposure the classical VRF carries.
+Fully **non-breaking**: no existing NIF signature, wire format, default, or
+export changes — purely new surface.
+
+### Added
+
+- New `MetamorphicCrypto.Poprf` module (base64 in/out, byte-identical to the
+  Rust core and the WASM build):
+  - `generate_keypair/0`, `derive_key_pair/2` (RFC 9497 §3.2.1
+    `DeriveKeyPair` — turn a managed master seed into a stable deployment
+    evaluation key), and `public_key/1`.
+  - `blind/3` → `%{blind, blinded_element, tweaked_key}` (client-side; only
+    the blinded element crosses the wire).
+  - `blind_evaluate/3` → `{:ok, {evaluated_element, dleq_proof}}` (server
+    side; learns nothing about the input).
+  - `finalize/7` — unblind + verify the DLEQ proof: `{:ok, output}` on
+    success, `:invalid` for a cryptographic rejection (mirroring
+    `Vrf.verify/3`), `{:error, reason}` for structural failures.
+  - `evaluate/3` — one-shot non-oblivious server-side evaluation (directory
+    construction, where the operator already holds the cleartext input).
+  - Deterministic KAT hooks `blind_with_scalar/4` and
+    `blind_evaluate_with_random/4` for cross-language byte-parity testing.
+- Correctness pinned byte-for-byte by the RFC 9497 Appendix A.1.3 test vectors
+  through the NIF boundary.
+- Bump native `metamorphic-crypto` `0.10` → `0.11` (which introduces the
+  `poprf` module these NIFs wrap).
+
 ## v0.8.2 (2026-07-09)
 
 Robustness release for **ML-DSA signing / key generation on the BEAM dirty-CPU

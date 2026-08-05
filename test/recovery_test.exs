@@ -11,7 +11,7 @@ defmodule MetamorphicCrypto.RecoveryTest do
 
       # 13 hyphen-separated groups
       groups = String.split(recovery_key, "-")
-      assert length(groups) == 13
+      assert Enum.count_until(groups, 14) == 13
 
       # Secret is 32 bytes
       assert byte_size(Base.decode64!(secret)) == 32
