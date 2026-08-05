@@ -6,7 +6,7 @@
 
 use metamorphic_crypto::{
     CryptoError, SecurityLevel, SignatureLevel, Suite, b64, box_seal, hkdf, hmac_sha256, hybrid,
-    kdf, keys, on_signing_stack, recovery, seal, secretbox, sha3_256, sha3_512,
+    kdf, keys, on_signing_stack, poprf, recovery, seal, secretbox, sha3_256, sha3_512,
     sha3_512_with_context, sha256, sha512, sign, vrf, vrf_p256,
 };
 use rustler::{Binary, Error, NifResult};
@@ -613,6 +613,140 @@ fn nif_ecvrf_p256_proof_to_hash(proof_b64: &str) -> NifResult<String> {
     let proof = b64::decode(proof_b64).map_err(to_nif_error)?;
     Ok(b64::encode(
         &vrf_p256::ecvrf_p256_proof_to_hash(&proof).map_err(to_nif_error)?,
+    ))
+}
+
+// ─── POPRF (RFC 9497, OPRF(ristretto255, SHA-512)) ───────────────────────────
+//
+// The oblivious index-derivation primitive behind CONIKS query-time privacy:
+// the client blinds its private input, the server evaluates the blinded element
+// (never learning the input), and the client unblinds + verifies a DLEQ proof.
+// The `*_with_scalar` / `*_with_random` variants exist for deterministic
+// cross-language KATs; production callers use the CSPRNG variants.
+
+#[rustler::nif]
+fn nif_poprf_generate_keypair() -> (String, String) {
+    let (sk, pk) = poprf::poprf_generate_keypair();
+    (b64::encode(&sk), b64::encode(&pk))
+}
+
+#[rustler::nif]
+fn nif_poprf_derive_key_pair(seed_b64: &str, key_info_b64: &str) -> NifResult<(String, String)> {
+    let seed = b64::decode(seed_b64).map_err(to_nif_error)?;
+    let key_info = b64::decode(key_info_b64).map_err(to_nif_error)?;
+    let (sk, pk) = poprf::poprf_derive_key_pair(&seed, &key_info).map_err(to_nif_error)?;
+    Ok((b64::encode(&sk), b64::encode(&pk)))
+}
+
+#[rustler::nif]
+fn nif_poprf_public_key(secret_key_b64: &str) -> NifResult<String> {
+    let sk = b64::decode(secret_key_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(
+        &poprf::poprf_public_key(&sk).map_err(to_nif_error)?,
+    ))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn nif_poprf_blind(
+    input_b64: &str,
+    info_b64: &str,
+    public_key_b64: &str,
+) -> NifResult<(String, String, String)> {
+    let input = b64::decode(input_b64).map_err(to_nif_error)?;
+    let info = b64::decode(info_b64).map_err(to_nif_error)?;
+    let pk = b64::decode(public_key_b64).map_err(to_nif_error)?;
+    let state = poprf::poprf_blind(&input, &info, &pk).map_err(to_nif_error)?;
+    Ok((
+        b64::encode(&state.blind),
+        b64::encode(&state.blinded_element),
+        b64::encode(&state.tweaked_key),
+    ))
+}
+
+/// KAT-only [`nif_poprf_blind`] with an explicit blind scalar (deterministic).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn nif_poprf_blind_with_scalar(
+    input_b64: &str,
+    info_b64: &str,
+    public_key_b64: &str,
+    blind_b64: &str,
+) -> NifResult<(String, String, String)> {
+    let input = b64::decode(input_b64).map_err(to_nif_error)?;
+    let info = b64::decode(info_b64).map_err(to_nif_error)?;
+    let pk = b64::decode(public_key_b64).map_err(to_nif_error)?;
+    let blind = b64::decode(blind_b64).map_err(to_nif_error)?;
+    let state = poprf::poprf_blind_with_scalar(&input, &info, &pk, &blind).map_err(to_nif_error)?;
+    Ok((
+        b64::encode(&state.blind),
+        b64::encode(&state.blinded_element),
+        b64::encode(&state.tweaked_key),
+    ))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn nif_poprf_blind_evaluate(
+    secret_key_b64: &str,
+    blinded_element_b64: &str,
+    info_b64: &str,
+) -> NifResult<(String, String)> {
+    let sk = b64::decode(secret_key_b64).map_err(to_nif_error)?;
+    let blinded = b64::decode(blinded_element_b64).map_err(to_nif_error)?;
+    let info = b64::decode(info_b64).map_err(to_nif_error)?;
+    let (evaluated, proof) =
+        poprf::poprf_blind_evaluate(&sk, &blinded, &info).map_err(to_nif_error)?;
+    Ok((b64::encode(&evaluated), b64::encode(&proof)))
+}
+
+/// KAT-only [`nif_poprf_blind_evaluate`] with an explicit DLEQ nonce
+/// (deterministic).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn nif_poprf_blind_evaluate_with_random(
+    secret_key_b64: &str,
+    blinded_element_b64: &str,
+    info_b64: &str,
+    random_b64: &str,
+) -> NifResult<(String, String)> {
+    let sk = b64::decode(secret_key_b64).map_err(to_nif_error)?;
+    let blinded = b64::decode(blinded_element_b64).map_err(to_nif_error)?;
+    let info = b64::decode(info_b64).map_err(to_nif_error)?;
+    let random = b64::decode(random_b64).map_err(to_nif_error)?;
+    let (evaluated, proof) = poprf::poprf_blind_evaluate_with_random(&sk, &blinded, &info, &random)
+        .map_err(to_nif_error)?;
+    Ok((b64::encode(&evaluated), b64::encode(&proof)))
+}
+
+#[allow(clippy::too_many_arguments)] // Mirrors the RFC 9497 Finalize signature.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn nif_poprf_finalize(
+    input_b64: &str,
+    blind_b64: &str,
+    evaluated_element_b64: &str,
+    blinded_element_b64: &str,
+    proof_b64: &str,
+    info_b64: &str,
+    tweaked_key_b64: &str,
+) -> NifResult<Option<String>> {
+    let input = b64::decode(input_b64).map_err(to_nif_error)?;
+    let blind = b64::decode(blind_b64).map_err(to_nif_error)?;
+    let evaluated = b64::decode(evaluated_element_b64).map_err(to_nif_error)?;
+    let blinded = b64::decode(blinded_element_b64).map_err(to_nif_error)?;
+    let proof = b64::decode(proof_b64).map_err(to_nif_error)?;
+    let info = b64::decode(info_b64).map_err(to_nif_error)?;
+    let tweaked = b64::decode(tweaked_key_b64).map_err(to_nif_error)?;
+    Ok(poprf::poprf_finalize(
+        &input, &blind, &evaluated, &blinded, &proof, &info, &tweaked,
+    )
+    .map_err(to_nif_error)?
+    .map(|out| b64::encode(&out)))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn nif_poprf_evaluate(secret_key_b64: &str, input_b64: &str, info_b64: &str) -> NifResult<String> {
+    let sk = b64::decode(secret_key_b64).map_err(to_nif_error)?;
+    let input = b64::decode(input_b64).map_err(to_nif_error)?;
+    let info = b64::decode(info_b64).map_err(to_nif_error)?;
+    Ok(b64::encode(
+        &poprf::poprf_evaluate(&sk, &input, &info).map_err(to_nif_error)?,
     ))
 }
 

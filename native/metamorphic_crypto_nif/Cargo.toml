@@ -12,4 +12,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustler = "0.37"
-metamorphic-crypto = "0.10"
+metamorphic-crypto = "0.11"
+
+# --- Local co-development override (commented out by default) ---
+# Uncomment to build against an unreleased, sibling metamorphic-crypto working
+# tree instead of the published crate. Leave commented in committed code so CI,
+# release, and downstream consumers resolve the published version.
+#
+# [patch.crates-io]
+# metamorphic-crypto = { path = "../../../metamorphic-crypto" }

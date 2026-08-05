@@ -173,4 +173,43 @@ defmodule MetamorphicCrypto.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def nif_ecvrf_p256_proof_to_hash(_proof_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  # POPRF (RFC 9497, OPRF(ristretto255, SHA-512))
+  def nif_poprf_generate_keypair, do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_derive_key_pair(_seed_b64, _key_info_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_public_key(_secret_key_b64), do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_blind(_input_b64, _info_b64, _public_key_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_blind_with_scalar(_input_b64, _info_b64, _public_key_b64, _blind_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_blind_evaluate(_secret_key_b64, _blinded_element_b64, _info_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_blind_evaluate_with_random(
+        _secret_key_b64,
+        _blinded_element_b64,
+        _info_b64,
+        _random_b64
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_finalize(
+        _input_b64,
+        _blind_b64,
+        _evaluated_element_b64,
+        _blinded_element_b64,
+        _proof_b64,
+        _info_b64,
+        _tweaked_key_b64
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
+
+  def nif_poprf_evaluate(_secret_key_b64, _input_b64, _info_b64),
+    do: :erlang.nif_error(:nif_not_loaded)
 end
